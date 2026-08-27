@@ -1,4 +1,4 @@
-"""Auth subsystem for the mhc-desktop kernel.
+"""Auth subsystem of mhc-desktop-backend.
 
 Exposes the :class:`AuthProviderProtocol` and :class:`AuthUser` types
 (also re-exported from :mod:`mhc_desktop_backend.protocols`) plus the

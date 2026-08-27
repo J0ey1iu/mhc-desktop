@@ -195,8 +195,20 @@ def create_app(
                 except Exception:  # pragma: no cover — best effort
                     logger.exception("shutdown.close failed")
 
+    # Brand resolution: caller-supplied ``meta["brand"]["name"]``
+    # wins, then ``cfg.app_name`` (env ``MHC_APP_NAME``), then
+    # ``__app_name__``. We seed the resolved value back into
+    # ``app.state.meta["brand"]["name"]`` so every late-boot
+    # consumer (FastAPI title, MCP clientInfo, onboarding
+    # placeholder) reads the same token.
+    seed_meta = dict(meta) if meta else {}
+    brand_name = (
+        (seed_meta.get("brand") or {}).get("name") or cfg.app_name
+    )
+    seed_meta.setdefault("brand", {})["name"] = brand_name
+
     app = FastAPI(
-        title="mhc-desktop backend",
+        title=f"{brand_name} API",
         version=__version__,
         docs_url="/docs",
         redoc_url=None,
@@ -222,7 +234,7 @@ def create_app(
     app.state.onboarding_cards = cards
     app.state.tool_executor_registry = tool_executor_registry
     app.state.content_packs_root = content_packs_root
-    app.state.meta = dict(meta) if meta else {}
+    app.state.meta = seed_meta
 
     # Install auth middleware last so it sees the final app state.
     if auth is not None:
@@ -287,7 +299,7 @@ def create_app(
 
     _mount_spa(app)
 
-    logger.info("mhc-desktop backend %s ready (debug=%s)", __version__, cfg.debug)
+    logger.info("%s ready (debug=%s)", brand_name, cfg.debug)
     return app
 
 

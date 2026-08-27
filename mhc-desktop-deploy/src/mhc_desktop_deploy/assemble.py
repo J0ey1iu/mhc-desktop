@@ -90,13 +90,20 @@ def build_default_app(**overrides: object) -> FastAPI:
     # restart) and creates the skills/mcp/tools/sessions subdirs.
     ensure_dirs()
 
+    # Brand: explicit ``brand_name=`` kwarg > env (already loaded
+    # into ``cfg.app_name``) > kernel default. See ``docs/BRANDING.md``.
+    brand_name: str = str(overrides.pop("brand_name", None) or cfg.app_name)
+
     kwargs: dict[str, object] = {
         "config": cfg,
         "sessions": default_session_store(factory_data_dir),
         "providers": default_provider_store(factory_data_dir),
         "skills": default_skill_store(factory_data_dir),
         "mcp_store": default_mcp_store(factory_data_dir),
-        "mcp_manager": default_mcp_manager(factory_data_dir),
+        "mcp_manager": default_mcp_manager(
+            factory_data_dir,
+            client_name=brand_name,
+        ),
         "tools": default_tool_store(factory_data_dir),
         "stream_registry": default_stream_registry(),
         "prefs": default_prefs_store(factory_data_dir),
@@ -127,6 +134,10 @@ def build_default_app(**overrides: object) -> FastAPI:
         "version": create_app.__module__,
         "data_dir": str(data_dir),
         "debug": cfg.debug,
+        # Brand token consumed by FastAPI title, MCP ``clientInfo``,
+        # and the onboarding placeholder renderer. See
+        # ``docs/BRANDING.md`` for the full rebrand recipe.
+        "brand": {"name": brand_name},
         # Empty by default; deploys that stage content packs at boot
         # can populate these via the ``meta=`` override.
         "bundled": {"skills": [], "mcps": [], "tools": []},

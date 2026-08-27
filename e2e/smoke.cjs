@@ -124,8 +124,10 @@ async function main() {
     assert(ids.includes("welcome"))
     assert(ids.includes("skills"))
     assert(ids.includes("mcp"))
-    // zh locale resolves to Chinese title.
-    assert(r.body[0].title === "欢迎使用 mhc-desktop")
+    // zh locale resolves to Chinese title. Brand name comes from
+    // ``meta["brand"]["name"]``; in this smoke run it's the kernel
+    // default ``mhc-desktop-backend`` (no deploy override wired).
+    assert(r.body[0].title === "欢迎使用 mhc-desktop-backend")
   })
 
   await check("GET /api/v1/providers/presets returns kernel defaults", async () => {

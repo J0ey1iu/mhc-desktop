@@ -1,6 +1,7 @@
 # mhc-desktop-backend
 
-Backend HTTP/SSE service for the mhc-desktop Skill/MCP client.
+Backend HTTP/SSE service for the mhc-desktop-backend Skill/MCP client. See
+`docs/BRANDING.md` for the rebrand recipe when forking under a new product name.
 
 - Stack: FastAPI + minimal-harness + mh-service-kit + openai + anthropic
 - Default port: `8765` (`MHC_PORT`)

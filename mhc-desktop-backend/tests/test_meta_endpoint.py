@@ -15,12 +15,21 @@ from fastapi.testclient import TestClient
 from mhc_desktop_backend.app import create_app
 
 
-def test_meta_is_public_and_empty_when_no_meta_wired():
+def test_meta_is_public_and_seeds_default_brand():
+    # ``create_app`` always seeds ``meta["brand"]["name"]`` so
+    # the FastAPI title, MCP clientInfo, and onboarding renderer
+    # all read the same token. Without a deploy override the
+    # default is the kernel module name, not the upstream
+    # product name.
     app = create_app()
     with TestClient(app) as c:
         r = c.get("/api/v1/meta")
     assert r.status_code == 200
-    assert r.json() == {"meta": {}}
+    body = r.json()
+    assert body["meta"]["brand"]["name"] == "mhc-desktop-backend"
+    # Caller-supplied keys still pass through verbatim.
+    for k in ("version", "data_dir", "bundled"):
+        assert k not in body["meta"]
 
 
 def test_meta_returns_deploy_manifest():

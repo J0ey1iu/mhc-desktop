@@ -1,4 +1,4 @@
-"""Entry point for the mhc-desktop backend HTTP server.
+"""Entry point for the mhc-desktop-backend HTTP server.
 
 Usage:
     uv run python -m mhc_desktop_backend
@@ -105,7 +105,7 @@ def run() -> None:
     logger = logging.getLogger("mhc_desktop_backend")
 
     logger.info(
-        "Starting mhc-desktop backend %s on %s:%s", __version__, cfg.host, cfg.port
+        "Starting %s %s on %s:%s", cfg.app_name, __version__, cfg.host, cfg.port
     )
     uvicorn.run(
         "mhc_desktop_backend.app:create_app",

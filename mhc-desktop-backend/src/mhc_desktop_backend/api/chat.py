@@ -126,16 +126,13 @@ def _format_skill_root() -> str:
     through the skill store. The textual form here is just so the
     model has a human-readable anchor; ``~`` keeps it portable.
 
-    ``SKILLS_DIR`` moved to the deploy package; if deploy isn't
-    installed we fall back to the legacy ``~/.mhc-desktop/skills``
-    default so the kernel still renders a coherent prompt.
+    ``SKILLS_DIR`` lives in the deploy package; the kernel
+    requires the deploy package — there is no fallback. Tests
+    inject a tmp dir via the deploy's ``paths`` module.
     """
-    try:
-        from mhc_desktop_deploy.impls.file_stores.paths import (
-            SKILLS_DIR as _SKILLS_DIR,
-        )
-    except Exception:  # pragma: no cover — deploy absent
-        _SKILLS_DIR = Path.home() / ".mhc-desktop" / "skills"
+    from mhc_desktop_deploy.impls.file_stores.paths import (
+        SKILLS_DIR as _SKILLS_DIR,
+    )
     home = Path.home()
     sk = _SKILLS_DIR.resolve()
     try:

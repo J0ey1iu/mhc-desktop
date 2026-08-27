@@ -81,17 +81,27 @@ def _resolve(texts: dict[str, str], locale: str) -> str:
     return ""
 
 
-def _build_cards(cards: list, locale: str) -> list[OnboardingCard]:
+def _build_cards(cards: list, locale: str, brand_name: str) -> list[OnboardingCard]:
+    # ``title_i18n`` may contain ``{brand_name}``; ``str.replace`` is a
+    # no-op on strings without the placeholder and silently leaves
+    # typos like ``{BrandName}`` literal — no KeyError risk.
     out: list[OnboardingCard] = []
+    sub = brand_name
     for raw in cards:
         out.append(
             OnboardingCard(
                 id=raw.id,
                 type=raw.type,
-                title=_resolve(raw.title_i18n, locale),
-                body=_resolve(raw.body_i18n, locale),
-                title_i18n=dict(raw.title_i18n),
-                body_i18n=dict(raw.body_i18n),
+                title=_resolve(raw.title_i18n, locale).replace("{brand_name}", sub),
+                body=_resolve(raw.body_i18n, locale).replace("{brand_name}", sub),
+                title_i18n={
+                    k: v.replace("{brand_name}", sub)
+                    for k, v in raw.title_i18n.items()
+                },
+                body_i18n={
+                    k: v.replace("{brand_name}", sub)
+                    for k, v in raw.body_i18n.items()
+                },
                 media_kind=getattr(raw, "media_kind", "none") or "none",
                 media_color=getattr(raw, "media_color", None),
                 media_label=getattr(raw, "media_label", None),
@@ -118,4 +128,7 @@ async def list_onboarding(
     """
     cards = getattr(request.app.state, "onboarding_cards", None) or []
     locale = parse_locale(accept_language)
-    return _build_cards(cards, locale)
+    brand_name = (
+        (getattr(request.app.state, "meta", {}) or {}).get("brand", {}) or {}
+    ).get("name") or "mhc-desktop-backend"
+    return _build_cards(cards, locale, brand_name)

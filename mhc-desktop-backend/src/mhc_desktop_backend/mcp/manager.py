@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from mhc_desktop_backend.mcp.models import MCPServer
+from mhc_desktop_backend import __app_name__, __version__
 
 if TYPE_CHECKING:  # pragma: no cover — type-check only
     from mhc_desktop_backend.protocols import MCPStoreProtocol
@@ -62,10 +63,22 @@ class MCPConnection:
 class MCPManager:
     """Owns per-server subprocess lifecycles and the JSON-RPC client."""
 
-    def __init__(self, store: "MCPStoreProtocol") -> None:
+    def __init__(
+        self,
+        store: "MCPStoreProtocol",
+        *,
+        client_name: str | None = None,
+    ) -> None:
         self._store = store
         self._conns: dict[str, MCPConnection] = {}
         self._lock = asyncio.Lock()
+        # ``clientInfo`` fields we send during the MCP ``initialize``
+        # handshake. Defaults to the kernel module name + version so
+        # downstream MCP servers' audit logs don't see a hardcoded
+        # upstream brand. The deploy passes its brand via
+        # ``build_default_app(meta={"brand":{"name": ...}})`` →
+        # ``default_mcp_manager(client_name=...)``.
+        self._client_name = client_name or __app_name__
 
     async def connect(self, server: MCPServer) -> MCPConnection:
         """Spawn the subprocess (or reuse an existing one) and handshake."""
@@ -105,8 +118,8 @@ class MCPManager:
                     {
                         "protocolVersion": "2024-11-05",
                         "clientInfo": {
-                            "name": "mhc-desktop",
-                            "version": "0.1.0",
+                            "name": self._client_name,
+                            "version": __version__,
                         },
                         "capabilities": {},
                     },

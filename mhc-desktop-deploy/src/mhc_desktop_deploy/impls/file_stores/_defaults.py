@@ -66,8 +66,15 @@ def default_mcp_store(data_dir: Path | None = None) -> MCPStore:
     return MCPStore()
 
 
-def default_mcp_manager(data_dir: Path | None = None) -> MCPManager:
-    return MCPManager(default_mcp_store(data_dir))
+def default_mcp_manager(
+    data_dir: Path | None = None,
+    *,
+    client_name: str | None = None,
+) -> MCPManager:
+    # ``client_name`` flows into the MCP ``initialize.clientInfo.name``
+    # so downstream MCP server audit logs see the rebranded client,
+    # not the upstream hardcode. The version is owned by the kernel.
+    return MCPManager(default_mcp_store(data_dir), client_name=client_name)
 
 
 def default_tool_store(data_dir: Path | None = None) -> ToolStore:

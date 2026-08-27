@@ -1,4 +1,4 @@
-"""Locale parsing for the mhc-desktop backend.
+"""Locale parsing for mhc-desktop-backend.
 
 Mirrors the helper in mh-gateway but defaults to ``en`` to match
 the frontend's behaviour: ``i18n.ts`` also defaults to English

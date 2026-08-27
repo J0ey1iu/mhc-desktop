@@ -44,7 +44,10 @@ class OnboardingCard(BaseModel):
 
 # Hard-coded product copy. Each entry owns a slug and the
 # fallback English copy; the Chinese copy lives in the same
-# record so we never drift across locales.
+# record so we never drift across locales. ``{brand_name}`` in
+# title strings is substituted at render time from
+# ``app.state.meta["brand"]["name"]``; strings without the
+# placeholder pass through untouched.
 DEFAULT_ONBOARDING_CARDS: list[OnboardingCard] = [
     OnboardingCard(
         id="welcome",
@@ -56,14 +59,14 @@ DEFAULT_ONBOARDING_CARDS: list[OnboardingCard] = [
         # ``body_i18n`` so the wire payload always carries the
         # right locale. Pydantic requires both fields so we keep
         # a sensible default rather than an empty string.
-        title="Welcome to mhc-desktop",
+        title="Welcome to {brand_name}",
         body=(
             "A focused agent workspace. Pick a model, drop in skills, "
             "connect tools — every message runs the same loop."
         ),
         title_i18n={
-            "en": "Welcome to mhc-desktop",
-            "zh": "欢迎使用 mhc-desktop",
+            "en": "Welcome to {brand_name}",
+            "zh": "欢迎使用 {brand_name}",
         },
         body_i18n={
             "en": (

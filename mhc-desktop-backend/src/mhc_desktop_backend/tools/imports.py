@@ -126,17 +126,12 @@ async def import_tool_from_disk(slug: str, source_path: str | None = None) -> An
     copy (never imported, or deleted). Never raises for a missing
     file — callers treat ``None`` as "tool not loaded".
     """
-    # ``DATA_DIR`` moved to deploy when the file-backed stores
-    # relocated. We try the deploy path first; if deploy isn't
-    # installed (rare — only in tests that mock the import) we fall
-    # back to the legacy ``~/.mhc-desktop`` default so import errors
-    # don't mask the real failure.
-    try:
-        from mhc_desktop_deploy.impls.file_stores.paths import (
-            DATA_DIR as _DATA_DIR,
-        )
-    except Exception:  # pragma: no cover — deploy absent
-        _DATA_DIR = Path.home() / ".mhc-desktop"
+    # ``DATA_DIR`` lives in the deploy package; the kernel
+    # requires the deploy package — there is no fallback. Tests
+    # inject a tmp dir via the deploy's ``paths`` module.
+    from mhc_desktop_deploy.impls.file_stores.paths import (
+        DATA_DIR as _DATA_DIR,
+    )
 
     DATA_DIR = _DATA_DIR  # keep the public name; tests expect this
 

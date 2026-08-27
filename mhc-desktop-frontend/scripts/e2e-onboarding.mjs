@@ -91,8 +91,8 @@ async function main() {
   if (!first.overlayVisible) throw new Error("overlay should be visible on first run")
   if (first.type !== "centered")
     throw new Error(`card 1 should be centered, got ${first.type}`)
-  if (first.title !== "Welcome to mhc-desktop")
-    throw new Error(`expected English title, got "${first.title}"`)
+  if (first.title !== "Welcome to mhc-desktop-backend")
+    throw new Error(`expected English title with kernel-default brand, got "${first.title}"`)
   if (!first.dots[0] || first.dots.filter(Boolean).length !== 1)
     throw new Error(`expected only first dot active, got ${JSON.stringify(first.dots)}`)
   if (first.userSelect !== "none" || first.webkitUserSelect !== "none")
@@ -183,7 +183,7 @@ async function main() {
     client,
     `(() => { const d = document.querySelector('[role=dialog][aria-modal]'); return d?.querySelector('h1,h2')?.textContent; })()?.trim()`,
   )
-  if (zhTitle !== "用 MCP 连接工具" && zhTitle !== "技能随消息绑定" && zhTitle !== "欢迎使用 mhc-desktop")
+  if (zhTitle !== "用 MCP 连接工具" && zhTitle !== "技能随消息绑定" && zhTitle !== "欢迎使用 mhc-desktop-backend")
     throw new Error(
       `locale switch did not re-render in Chinese; got "${zhTitle}". ` +
       `This usually means the component isn't reading the i18n dicts.`,
