@@ -20,7 +20,6 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-
 from mhc_desktop_backend.app import create_app
 from mhc_desktop_backend.protocols import (
     MCPManagerProtocol,
@@ -33,7 +32,6 @@ from mhc_desktop_backend.protocols import (
     StreamRegistryProtocol,
     ToolStoreProtocol,
 )
-
 
 # ── Stubs ─────────────────────────────────────────────────────────────────────
 # Each stub satisfies its Protocol structurally. They live in-process
@@ -271,14 +269,14 @@ def test_reference_impls_satisfy_protocols():
     # *current* state of the reference impls.
     from mhc_desktop_backend.mcp.manager import MCPManager
     from mhc_desktop_deploy.impls.file_stores.mcp_store import MCPStore as FileMCPStore
-    from mhc_desktop_deploy.impls.file_stores.skills_store import (
-        SkillStore as FileSkillStore,
-    )
     from mhc_desktop_deploy.impls.file_stores.provider_store import (
         ProviderStore as FileProviderStore,
     )
     from mhc_desktop_deploy.impls.file_stores.session_store import (
         SessionStore as FileSessionStore,
+    )
+    from mhc_desktop_deploy.impls.file_stores.skills_store import (
+        SkillStore as FileSkillStore,
     )
     from mhc_desktop_deploy.impls.file_stores.stream_registry import (
         StreamRegistry as FileReg,
@@ -505,48 +503,34 @@ async def test_partial_injection_uses_default_for_unspecified(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_create_app_no_args_matches_legacy_behavior(tmp_path, monkeypatch):
-    """``create_app()`` with no kwargs must produce an app functionally
-    identical to the pre-refactor implementation. We smoke-test by
-    hitting routes that exercise each store surface — sessions,
-    providers, skills (empty), MCP (empty), tools (empty), health.
-
-    Post-refactor the defaults live in ``mhc_desktop_deploy``; the
-    kernel no longer carries file-backed stores inline. This test
-    therefore uses ``build_default_app()`` (which is what
-    ``python -m mhc_desktop_deploy`` does in dev) — it wires the
-    same stores the pre-refactor ``create_app()`` did.
-
-    Redirect ``HOME`` (and ``USERPROFILE`` for Windows) to ``tmp_path``
-    so the file-backed stores land inside the test sandbox instead of
-    the real ``~/.mhc-desktop``.
+async def test_create_app_with_auth_stub_smoke(tmp_path, monkeypatch):
+    """``create_app(auth=StubAuthProvider())`` boots and the
+    store-free routes respond. The store-backed surfaces
+    (``/api/v1/{providers,sessions,skills,mcp,tools}``) are
+    covered by the deploy-side ``test_assemble.py`` against
+    ``build_default_app()``; the kernel contract here is just
+    "the auth plumbing doesn't crash the kernel".
     """
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
-    from mhc_desktop_deploy.assemble import build_default_app
+    from _auth_stub import StubAuthProvider
 
-    app = build_default_app()
+    app = create_app(auth=StubAuthProvider())
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
     ) as client:
         assert (await client.get("/api/v1/health")).status_code == 200
         assert (await client.get("/ready")).status_code == 200
-        # ``build_default_app()`` wires the MockAuthProvider by
-        # default, so protected endpoints require a token. Login as
-        # the seeded ``demo`` account.
+        # Auth wired: login then read principal via /auth/me.
         login = await client.post(
             "/api/v1/auth/login",
             json={"username": "demo", "password": "demo"},
         )
-        assert login.status_code == 200
+        assert login.status_code == 200, login.text
         token = login.json()["token"]
-        headers = {"Authorization": f"Bearer {token}"}
-        assert (
-            await client.get("/api/v1/providers", headers=headers)
-        ).status_code == 200
-        assert (
-            await client.get("/api/v1/sessions", headers=headers)
-        ).status_code == 200
-        assert (await client.get("/api/v1/skills", headers=headers)).status_code == 200
-        assert (await client.get("/api/v1/mcp", headers=headers)).status_code == 200
-        assert (await client.get("/api/v1/tools", headers=headers)).status_code == 200
+        r = await client.get(
+            "/api/v1/auth/me",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert r.status_code == 200
+        assert r.json()["user"]["username"] == "demo"

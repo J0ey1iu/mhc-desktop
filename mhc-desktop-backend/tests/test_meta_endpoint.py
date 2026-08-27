@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-
 from mhc_desktop_backend.app import create_app
 
 
@@ -72,9 +71,9 @@ def test_meta_endpoint_does_not_require_auth():
     removes it would 401 the renderer, which is a foot-gun we
     want to surface.
     """
-    from mhc_desktop_deploy.assemble import build_default_app
+    from _auth_stub import StubAuthProvider
 
-    app = build_default_app()
+    app = create_app(auth=StubAuthProvider())
     with TestClient(app) as c:
         # No Authorization header — meta must still answer.
         r = c.get("/api/v1/meta")

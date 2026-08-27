@@ -3,54 +3,14 @@
 from __future__ import annotations
 
 import pytest
+from _auth_stub import StubAuthProvider
 from fastapi.testclient import TestClient
-
 from mhc_desktop_backend.app import create_app
-from mhc_desktop_deploy.assemble import build_default_app
-from mhc_desktop_deploy.impls.auth.mock import MockAuthProvider
-
-
-# ── Mock provider ────────────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_mock_login_success_returns_token_and_user() -> None:
-    p = MockAuthProvider()
-    out = await p.login("alice", "wonderland")
-    assert out is not None
-    token, user = out
-    assert user.username == "alice"
-    assert user.display_name == "Alice Liddell"
-    assert len(token) > 16
-
-
-@pytest.mark.asyncio
-async def test_mock_login_bad_password_returns_none() -> None:
-    p = MockAuthProvider()
-    assert await p.login("alice", "wrong") is None
-
-
-@pytest.mark.asyncio
-async def test_mock_login_unknown_user_returns_none() -> None:
-    p = MockAuthProvider()
-    assert await p.login("nobody", "x") is None
-
-
-@pytest.mark.asyncio
-async def test_mock_resolve_then_logout() -> None:
-    p = MockAuthProvider()
-    token, user = await p.login("bob", "builder")  # type: ignore[misc]
-    assert (await p.resolve(token)) == user
-    await p.logout(token)
-    assert await p.resolve(token) is None
-
-
-# ── HTTP routes ──────────────────────────────────────────────────────────
 
 
 @pytest.fixture
 def app_with_auth():
-    return build_default_app()
+    return create_app(auth=StubAuthProvider())
 
 
 @pytest.fixture
@@ -144,7 +104,7 @@ def test_login_response_carries_upstream_credential_field(client: TestClient) ->
     )
     body = r.json()
     assert "upstream_credential" in body
-    # MockAuthProvider leaves it None.
+    # StubAuthProvider leaves it None.
     assert body["upstream_credential"] is None
 
 

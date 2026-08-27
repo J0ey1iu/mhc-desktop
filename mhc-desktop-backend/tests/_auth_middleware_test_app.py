@@ -11,11 +11,10 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from _auth_stub import StubAuthProvider
 from fastapi import FastAPI, Request
-from starlette.testclient import TestClient
-
 from mhc_desktop_backend.auth.middleware import install_auth
-from mhc_desktop_deploy.impls.auth.mock import MockAuthProvider
+from starlette.testclient import TestClient
 
 
 def build_app_and_login() -> tuple[TestClient, str]:
@@ -23,7 +22,7 @@ def build_app_and_login() -> tuple[TestClient, str]:
     single test-only echo route, log in as alice, and return
     ``(client, token)`` ready for tests to make authenticated
     requests."""
-    provider = MockAuthProvider()
+    provider = StubAuthProvider()
     app = FastAPI()
     install_auth(app, provider)
 
