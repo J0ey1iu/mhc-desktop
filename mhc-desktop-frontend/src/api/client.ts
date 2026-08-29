@@ -316,6 +316,9 @@ export interface MarketSkill {
   downloads: number
   updated_at: number
   published_at: number
+  /** Publish-time extension fields forwarded by the kernel
+   *  (e.g. source_type / source_ref), empty when absent. */
+  meta?: Record<string, string>
 }
 
 export interface MarketStory {
@@ -757,13 +760,22 @@ export const api = {
       `${API_BASE}/api/v1/market/skills?q=${encodeURIComponent(q)}&category=${encodeURIComponent(category)}&sort=${sort}&featured=${featured}`,
     ).then(j<MarketSkill[]>),
 
-  publishSkill: (slug: string, category: string) =>
+  publishSkill: (
+    slug: string,
+    category: string,
+    sourceType: string = "local",
+    sourceRef: string = "",
+  ) =>
     authedFetch(
       `${API_BASE}/api/v1/market/skills/${encodeURIComponent(slug)}/publish`,
       {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ category }),
+        body: JSON.stringify({
+          category,
+          source_type: sourceType,
+          ...(sourceRef ? { source_ref: sourceRef } : {}),
+        }),
       },
     ).then(j<MarketSkill>),
 

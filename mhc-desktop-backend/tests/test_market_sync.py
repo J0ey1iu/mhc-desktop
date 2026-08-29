@@ -157,6 +157,28 @@ def test_publish_and_add_roundtrip(client):
     assert r.status_code == 200, r.text
 
 
+def test_publish_passthrough_extra_fields(client):
+    """Extension fields in the publish body (source_type/source_ref)
+    are forwarded by the kernel and persisted by the market — visible
+    on detail and list responses."""
+    c, _ = client
+    import_skill(c, "passthru", "public content")
+    r = c.post(
+        "/api/v1/market/skills/passthru/publish",
+        json={"category": "coding", "source_type": "local", "source_ref": "sk-abc"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["meta"] == {"source_type": "local", "source_ref": "sk-abc"}
+    key = r.json()["slug"]
+
+    # survives a re-read from the registry (detail + list)
+    d = c.get(f"/api/v1/market/skills/{key}")
+    assert d.status_code == 200, d.text
+    assert d.json()["meta"]["source_type"] == "local"
+    listed = [s for s in c.get("/api/v1/market/skills?q=passthru").json() if s["slug"] == key]
+    assert listed and listed[0]["meta"]["source_ref"] == "sk-abc"
+
+
 def test_add_same_name_different_content_coexists(client):
     """Local slug = market key (``name-random6``), which is unique per
     name+author. A same-named local skill with different content is

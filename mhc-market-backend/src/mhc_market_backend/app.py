@@ -189,6 +189,8 @@ def create_app(
         if not isinstance(data, str) or not data:
             raise HTTPException(status_code=400, detail="zip data (base64) required")
         try:
+            reserved = {"data", "sha", "display_name", "description", "category", "icon"}
+            extras = {k: v for k, v in body.items() if k not in reserved}
             meta = store.publish(
                 slug=slug,
                 user=user,
@@ -198,6 +200,7 @@ def create_app(
                 description=str(body.get("description") or ""),
                 category=str(body.get("category") or "other"),
                 icon=str(body.get("icon") or ""),
+                meta=extras or None,
             )
             logger.info(
                 "skill.published slug=%s author=%s sha=%s size=%s",

@@ -74,6 +74,10 @@ def _cfg(request: Request) -> tuple[httpx.AsyncClient, str, str]:
         base_url=base,
         timeout=MARKET_TIMEOUT,
         transport=getattr(request.app.state, "market_transport", None),
+        # trust_env=False — market is a local sidecar; don't route it
+        # through the user's shell / macOS system proxy (see
+        # llm/factory.py for the same guard on LLM clients).
+        trust_env=False,
     )
     return client, base, secret
 
@@ -323,18 +327,19 @@ async def publish_to_market(
         icon = str(fm.extra.get("icon") or "")
     except Exception:  # noqa: BLE001 — icon is cosmetic, never block publish
         icon = ""
+    payload = {
+        "data": base64.b64encode(zip_bytes).decode(),
+        "sha": sha,
+        "display_name": skill.name,
+        "description": skill.description,
+        "category": str(body.get("category") or "other"),
+        "icon": icon,
+    }
+    # 透传调用方扩展字段（如 source_type / source_ref）：内核只负责
+    # 固定字段，其余 body 键原样转发给 market 持久化。
+    payload.update({k: v for k, v in body.items() if k not in payload})
     r = await _market_request(
-        request,
-        "PUT",
-        f"/api/v1/skills/{slug}",
-        json_body={
-            "data": base64.b64encode(zip_bytes).decode(),
-            "sha": sha,
-            "display_name": skill.name,
-            "description": skill.description,
-            "category": str(body.get("category") or "other"),
-            "icon": icon,
-        },
+        request, "PUT", f"/api/v1/skills/{slug}", json_body=payload
     )
     if r.status_code != 200:
         raise _map_market_status(r)

@@ -75,6 +75,8 @@ const editBody = ref("")
 const saving = ref(false)
 const publishing = ref(false)
 const publishCategory = ref<string>("other")
+const publishSource = ref<"local" | "repost">("local")
+const publishSourceRef = ref<string>("")
 const delisting = ref(false)
 
 const CATEGORIES = ["efficiency", "writing", "coding", "office", "other"] as const
@@ -91,7 +93,12 @@ async function publishSelected() {
   if (!selected.value) return
   clearStatus()
   try {
-    const m = await api.publishSkill(selected.value.slug, publishCategory.value)
+    const m = await api.publishSkill(
+      selected.value.slug,
+      publishCategory.value,
+      publishSource.value,
+      publishSourceRef.value,
+    )
     await refreshSync()  // 发布后立即刷新作者/市场 key，让下架按钮出现
     showToast(t("skills.published", { name: m.display_name }), "success")
   } catch (e) {
@@ -595,6 +602,16 @@ async function saveEdit() {
           <select v-model="publishCategory" class="market-cat">
             <option v-for="c in CATEGORIES" :key="c" :value="c">{{ c }}</option>
           </select>
+          <select v-model="publishSource" class="market-cat" :title="t('skills.publishSource')">
+            <option value="local">{{ t("skills.sourceLocal") }}</option>
+            <option value="repost">{{ t("skills.sourceRepost") }}</option>
+          </select>
+          <input
+            v-if="publishSource === 'repost'"
+            v-model="publishSourceRef"
+            class="market-cat source-ref"
+            :placeholder="t('skills.sourceRef')"
+          />
           <button class="btn-secondary" :disabled="publishing" @click="publishSelected">
             <Icon name="upload" />
             {{ t("skills.publish") }}

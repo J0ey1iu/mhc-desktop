@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS skills (
   category      TEXT,
   author        TEXT NOT NULL,
   icon          TEXT,
+  meta          TEXT,
   sha           TEXT NOT NULL,
   size          INTEGER,
   downloads     INTEGER DEFAULT 0,
@@ -179,6 +180,8 @@ class MarketStore:
             cols = {r[1] for r in con.execute("PRAGMA table_info(skills)")}
             if "delisted" not in cols:
                 con.execute("ALTER TABLE skills ADD COLUMN delisted INTEGER DEFAULT 0")
+            if "meta" not in cols:
+                con.execute("ALTER TABLE skills ADD COLUMN meta TEXT")
             self._reconcile_display_names(con)
             con.commit()
 
@@ -240,7 +243,15 @@ class MarketStore:
             sql += " LIMIT ? OFFSET ?"
             args += [limit, offset]
         with self._connect() as con:
-            return [dict(r) for r in con.execute(sql, args)]
+            return [self._with_meta(dict(r)) for r in con.execute(sql, args)]
+
+    @staticmethod
+    def _with_meta(row: dict[str, Any]) -> dict[str, Any]:
+        """meta column is JSON text; surface it as a dict (extras
+        passed through by the kernel, e.g. source_type/source_ref)."""
+        raw = row.get("meta")
+        row["meta"] = json.loads(raw) if raw else {}
+        return row
 
     @staticmethod
     def _public_where(
@@ -286,7 +297,7 @@ class MarketStore:
             row = r.fetchone()
         if row is None or row["delisted"]:
             raise MarketError(404, f"skill '{slug}' not found or delisted")
-        return dict(row)
+        return self._with_meta(dict(row))
 
     def publish(
         self,
@@ -299,6 +310,7 @@ class MarketStore:
         description: str = "",
         category: str = "other",
         icon: str = "",
+        meta: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if not SLUG_RE.match(slug):
             raise MarketError(
@@ -345,15 +357,16 @@ class MarketStore:
             now = _now()
             con.execute(
                 "INSERT INTO skills (slug, display_name, description, category, "
-                "author, icon, sha, size, downloads, delisted, updated_at, published_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "author, icon, sha, meta, size, downloads, delisted, updated_at, published_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(slug) DO UPDATE SET display_name=excluded.display_name, "
                 "description=excluded.description, category=excluded.category, "
                 "author=excluded.author, icon=excluded.icon, sha=excluded.sha, "
-                "size=excluded.size, delisted=excluded.delisted, "
+                "meta=excluded.meta, size=excluded.size, delisted=excluded.delisted, "
                 "updated_at=excluded.updated_at",
                 (
                     slug, display_name, description, category, user, icon, sha,
+                    json.dumps(meta or {}),
                     sum(len(c) for _, c in files),
                     0,  # downloads preserved by the ON CONFLICT non-update
                     0,  # republishing resurrects a delisted entry

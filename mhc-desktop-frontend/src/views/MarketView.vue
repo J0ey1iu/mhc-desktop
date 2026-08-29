@@ -43,6 +43,13 @@ const SORT_OPTIONS = [
   { key: "newest", label: t("market.sortNewest") },
 ]
 
+/** 发布来源徽标文案：local→原创，repost→转载，无 meta 则空。 */
+function sourceLabel(m: { meta?: Record<string, string> }): string {
+  const st = m.meta?.source_type
+  if (!st) return ""
+  return st === "repost" ? t("skills.originRepost") : t("skills.originOriginal")
+}
+
 const items = ref<MarketSkill[]>([])
 const stories = ref<MarketStory[]>([])
 
@@ -349,6 +356,7 @@ function onKeydown(e: KeyboardEvent) {
           <div class="foot">
             <div class="stats">
               <span class="cat-tag">{{ CATEGORY_LABELS[m.category] ?? m.category }}</span>
+              <span v-if="sourceLabel(m)" class="cat-tag source-tag">{{ sourceLabel(m) }}</span>
               <span class="author">{{ t("skills.marketBy", { author: m.author }) }} · ⬇ {{ m.downloads }}</span>
             </div>
             <button
@@ -376,6 +384,16 @@ function onKeydown(e: KeyboardEvent) {
                     <h3>{{ detail.display_name }}</h3>
                     <div class="detail-meta">
                       <span class="meta-pill">{{ CATEGORY_LABELS[detail.category] ?? detail.category }}</span>
+                      <span v-if="sourceLabel(detail)" class="meta-pill source-tag">{{ sourceLabel(detail) }}</span>
+                      <a
+                        v-if="detail.meta?.source_ref"
+                        class="meta-pill source-link"
+                        :href="detail.meta.source_ref"
+                        target="_blank"
+                        rel="noopener"
+                      >
+                        {{ t("skills.sourceLink") }}
+                      </a>
                       <span>{{ t("skills.marketBy", { author: detail.author }) }}</span>
                       <span>⬇ {{ detail.downloads }}</span>
                       <span v-if="detail.updated_at">{{ fmtDate(detail.updated_at) }}</span>
@@ -523,6 +541,9 @@ function onKeydown(e: KeyboardEvent) {
 .skill-card .foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border-faint); }
 .stats { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--text-faint); min-width: 0; }
 .cat-tag { font-size: 10.5px; background: var(--bg-hover); color: var(--text-mid); padding: 2px 8px; border-radius: 999px; font-weight: 600; white-space: nowrap; }
+.source-tag { background: var(--accent-soft, rgba(37,99,235,.12)); color: var(--accent, #2563eb); }
+.source-link { text-decoration: none; }
+.source-link:hover { text-decoration: underline; }
 .stats .author { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .btn-add { background: var(--accent); color: var(--accent-fg); border: 0; border-radius: 8px; padding: 7px 13px; font-size: 13px; cursor: pointer; font-weight: 600; flex-shrink: 0; }
 .btn-add:hover { background: var(--accent-hover); }
