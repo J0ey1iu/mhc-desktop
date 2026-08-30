@@ -92,7 +92,178 @@ const BACKEND_PORT = parseInt(process.env.MHC_PORT || "8765", 10);
 const READY_TIMEOUT_MS = 30_000;
 const READY_BACKGROUND_TIMEOUT_MS = 180_000;
 const SPA_PORT_SCAN = [BACKEND_PORT, 8766, 8767, 8768, 8769, 8770];
-// ---------- single-instance lock ----------
+// ---------- global voice input (Alt+Shift+W) ----------
+//
+// The recognizer (sherpa-onnx WASM, ~200 MB model) runs inside the
+// main window's renderer — it is the only place it can live without
+// duplicating the model in memory. The overlay is a separate
+// frameless, transparent, always-on-top window that NEVER takes
+// focus (focusable:false + ignore-mouse), so the foreground app
+// keeps focus while the user dictates; when the run ends we commit
+// the text there via clipboard + simulated Ctrl+V.
+const DEFAULT_VOICE_SHORTCUT = "Alt+Shift+W";
+/** Current global dictation shortcut — the user picks from a fixed
+ *  preset list in Settings (free-form recording would risk colliding
+ *  with IME / app-specific hotkeys we can't see). */
+let voiceShortcut = DEFAULT_VOICE_SHORTCUT;
+/** Bottom-center overlay size (px). The card is 312 wide + 12 px
+ *  transparent margins so the rounded corners are truly rounded. */
+const OVERLAY_W = 336;
+const OVERLAY_H = 148;
+/** Overlay sits this far above the bottom of the work area. */
+const OVERLAY_BOTTOM_MARGIN = 40;
+let overlayWin = null;
+let voiceRunning = false;
+/** The SPA only enables the shortcut after login (reported via
+ *  ``voice:event`` type "auth") — dictation before auth would be
+ *  wrong (login screen active). Defaults to false: fail-closed. */
+let voiceAuthOk = false;
+/** Latest renderer event, replayed to a freshly-loaded overlay so
+ *  the fast "mic → loading" transition isn't missed while the
+ *  overlay window is still booting. */
+let lastOverlayEvent = null;
+function overlayURL() {
+    if (isDev()) {
+        const u = new URL(DEV_URL);
+        return `${u.origin}/overlay.html`;
+    }
+    return `file:///${node_path_1.default.join(spaDistDir(), "overlay.html").replace(/\\/g, "/")}`;
+}
+function positionOverlay() {
+    if (!overlayWin || overlayWin.isDestroyed())
+        return;
+    const wa = electron_1.screen.getPrimaryDisplay().workArea;
+    const [w, h] = overlayWin.getSize();
+    const x = Math.round(wa.x + (wa.width - w) / 2);
+    const y = Math.round(wa.y + wa.height - h - OVERLAY_BOTTOM_MARGIN);
+    overlayWin.setPosition(x, y);
+}
+function ensureOverlay() {
+    if (overlayWin && !overlayWin.isDestroyed()) {
+        positionOverlay();
+        overlayWin.showInactive();
+        return overlayWin;
+    }
+    overlayWin = new electron_1.BrowserWindow({
+        width: OVERLAY_W,
+        height: OVERLAY_H,
+        frame: false,
+        transparent: true,
+        // Required on Windows: without an alpha background the default
+        // white base color shows through the page's transparent areas,
+        // turning the rounded corners into a sharp square.
+        backgroundColor: "#00000000",
+        resizable: false,
+        movable: false,
+        minimizable: false,
+        maximizable: false,
+        closable: false,
+        alwaysOnTop: true,
+        skipTaskbar: true,
+        show: false,
+        webPreferences: {
+            preload: node_path_1.default.join(__dirname, "preload.js"),
+            contextIsolation: true,
+            nodeIntegration: false,
+            sandbox: true,
+            backgroundThrottling: false,
+        },
+    });
+    overlayWin.setAlwaysOnTop(true, "screen-saver");
+    overlayWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    // Clicks must never reach the overlay — it must not steal focus
+    // from the app being dictated into; everything is shortcut-driven.
+    // Note: focusable:false is deliberately NOT set — on Windows that
+    // combination with transparent:true leaves the window unpainted
+    // (known Electron compositor quirk). showInactive + ignored mouse
+    // events already guarantee it never takes focus.
+    overlayWin.setIgnoreMouseEvents(true);
+    overlayWin.on("closed", () => {
+        overlayWin = null;
+    });
+    const url = overlayURL();
+    void overlayWin.loadURL(url).catch((e) => {
+        console.error("[voice] overlay failed to load:", e);
+    });
+    positionOverlay();
+    overlayWin.showInactive();
+    return overlayWin;
+}
+function hideOverlay() {
+    if (overlayWin && !overlayWin.isDestroyed())
+        overlayWin.hide();
+}
+/** Alt+Shift+W toggles a global dictation run. Start = show the
+ *  overlay + tell the renderer to open the mic; stop = finalize,
+ *  hide the overlay and commit the transcript to the focused app. */
+async function toggleGlobalVoice() {
+    if (!voiceAuthOk) {
+        // Fail-closed: no auth yet (splash / login / logout) → ignore.
+        console.log("[voice] Alt+Shift+W ignored — session not authenticated");
+        return;
+    }
+    const win = mainWindow;
+    if (!win || win.isDestroyed()) {
+        console.warn("[voice] shortcut pressed but main window is gone");
+        return;
+    }
+    if (voiceRunning) {
+        voiceRunning = false;
+        // Stop is answered by the renderer with ``voice:done``.
+        win.webContents.send("voice:run", "stop");
+        return;
+    }
+    if (win.webContents.isLoading())
+        return;
+    voiceRunning = true;
+    ensureOverlay();
+    win.webContents.send("voice:run", "start");
+}
+/** Put the transcript into whatever app currently has focus. The
+ *  overlay never steals focus, so the pre-shortcut foreground app
+ *  is still foreground at stop time — clipboard + Ctrl+V is the
+ *  one mechanism that works for ANY target (Unicode-safe, no
+ *  window handle needed). The user's previous clipboard content
+ *  is restored after the paste lands. */
+function commitVoiceText(text) {
+    const prev = electron_1.clipboard.readText();
+    electron_1.clipboard.writeText(text);
+    const restore = () => electron_1.clipboard.writeText(prev);
+    if (process.platform === "win32") {
+        const ps = (0, node_child_process_1.spawn)("powershell", ["-NoProfile", "-STA", "-Command", "$w = New-Object -ComObject wscript.shell; $w.SendKeys('^v')"], { windowsHide: true });
+        // Restore fast — the target app reads the clipboard synchronously
+        // on Ctrl+V, so 800 ms never races it, and our transcript is out
+        // of the clipboard within a second.
+        ps.on("exit", () => setTimeout(restore, 800));
+        ps.on("error", (e) => {
+            console.error("[voice] paste failed:", e.message);
+            setTimeout(restore, 300);
+        });
+    }
+    else if (process.platform === "darwin") {
+        const osa = (0, node_child_process_1.spawn)("osascript", ["-e", 'tell application \"System Events\" to keystroke \"v\" using command down']);
+        osa.on("exit", () => setTimeout(restore, 800));
+    }
+    else {
+        // Linux: nothing generic without extra deps — text stays on the
+        // clipboard for the user to paste manually.
+        setTimeout(restore, 5000);
+    }
+}
+function registerVoiceShortcut() {
+    // Re-register is idempotent: unregister of a never-registered
+    // accelerator is a no-op, register() replaces any bound handler.
+    electron_1.globalShortcut.unregister(voiceShortcut);
+    const ok = electron_1.globalShortcut.register(voiceShortcut, () => {
+        void toggleGlobalVoice();
+    });
+    if (!ok) {
+        console.warn(`[voice] globalShortcut ${voiceShortcut} is already taken by another app — voice input disabled`);
+    }
+    else {
+        console.log(`[voice] globalShortcut ${voiceShortcut} registered`);
+    }
+}
 //
 // A second exe launch forwards its argv to the original instance and
 // focuses the existing window. Without this the user double-clicks
@@ -143,6 +314,9 @@ function canBind(port) {
 let backend = null;
 let backendExited = null;
 let mainWindow = null;
+/** Temp index.html with the backend URL injected (see
+ *  ``stageInjectedIndex``). Regenerated when the window is recreated. */
+let injectedHtmlPath = null;
 let backendPort = null;
 let backendReady = false;
 let tray = null;
@@ -507,6 +681,184 @@ async function promptCloseAction() {
     const action = choice.response === 1 ? "exit" : "tray";
     return { action, remember: choice.checkboxChecked === true };
 }
+/** Stage the injected index.html (backend URL + base href) to a
+ *  temp file. Returns null in dev (vite proxy handles it) or if
+ *  staging fails. Re-runnable so a recreated window can regenerate
+ *  the file after it was cleaned up. */
+async function stageInjectedIndex() {
+    if (isDev())
+        return null;
+    try {
+        const original = await node_fs_1.promises.readFile(spaIndexPath(), "utf8");
+        return await injectBackendUrl(original, backendPort ?? BACKEND_PORT, spaDistDir());
+    }
+    catch (e) {
+        console.error("[electron] failed to stage injected SPA index:", e);
+        return null;
+    }
+}
+/** Create the main window and wire its per-window handlers. Also
+ *  the recovery path: if the window is ever destroyed while the app
+ *  stays alive in the tray (a renderer script ``window.close()`` —
+ *  Ctrl+W — bypasses the main-process 'close' handler and destroys
+ *  the window directly; verified) the closed-guard recreates it
+ *  hidden so the tray "Open" and the global voice shortcut keep
+ *  working instead of dying silently. */
+function createMainWindow(startHidden) {
+    const win = new electron_1.BrowserWindow({
+        width: 1180,
+        height: 760,
+        minWidth: 760,
+        minHeight: 480,
+        title: "mhc-desktop",
+        // No native title bar; the renderer draws its own in TitleBar.vue
+        // (full control over theme, hover states, drag region). Window
+        // resize borders are still handled by the OS frame.
+        titleBarStyle: "hidden",
+        backgroundColor: "#ffffff",
+        show: false, // wait until first paint to avoid the white flash
+        webPreferences: {
+            preload: node_path_1.default.join(__dirname, "preload.js"),
+            contextIsolation: true,
+            nodeIntegration: false,
+            sandbox: true,
+            // The voice recognizer + level meter run in this renderer
+            // even while the window is minimized to tray — without this
+            // Chromium throttles rAF/timers in hidden windows.
+            backgroundThrottling: false,
+        },
+    });
+    mainWindow = win;
+    // Show as soon as the DOM is ready so the user gets visual
+    // feedback BEFORE the backend is up — unless this window is the
+    // hidden tray-recovery instance, which stays in the tray until
+    // summoned.
+    win.once("ready-to-show", () => {
+        if (!win.isDestroyed() && !startHidden)
+            win.show();
+    });
+    win.on("maximize", () => win.webContents.send("window:maximize-changed", true));
+    win.on("unmaximize", () => win.webContents.send("window:maximize-changed", false));
+    // Close-button handling. We intercept the X click: if the user
+    // remembers "tray" we just hide the window; otherwise we prompt
+    // them once and persist their choice.
+    let closePromptDone = false;
+    win.on("close", async (event) => {
+        if (isQuitting)
+            return; // we're already on the way out
+        if (!win || win.isDestroyed())
+            return;
+        // First close ever: respect the persisted pref from prior runs.
+        const pref = closePrefStore.read();
+        if (pref.remember && !closePromptDone) {
+            closePromptDone = true;
+            if (pref.action === "tray") {
+                event.preventDefault();
+                win.hide();
+                return;
+            }
+            // pref.action === "exit" → fall through to actual quit
+        }
+        else if (!closePromptDone) {
+            // First close, no remembered pref: ask the user.
+            event.preventDefault();
+            const r = await promptCloseAction();
+            closePromptDone = true;
+            if (!r)
+                return;
+            if (r.remember)
+                closePrefStore.write(r.action, true);
+            if (r.action === "tray") {
+                win.hide();
+                return;
+            }
+            // User picked exit. We already preventDefault'd above so
+            // the window won't close on its own; re-fire close() with
+            // isQuitting set so the recursive handler short-circuits.
+            isQuitting = true;
+            win.close();
+            return;
+        }
+        else {
+            // Subsequent closes within this session always honour the
+            // first choice — no need to re-prompt.
+            if (pref.action === "tray") {
+                event.preventDefault();
+                win.hide();
+                return;
+            }
+        }
+        isQuitting = true;
+    });
+    // Self-heal: any close path that destroys the window (renderer
+    // script-close bypasses the 'close' preventDefault) must not
+    // leave the tray/shortcut dead. Reset any in-flight voice run
+    // (its renderer died with the window) and bring up a fresh
+    // window hidden in the tray.
+    win.on("closed", () => {
+        if (mainWindow === win)
+            mainWindow = null;
+        if (isQuitting)
+            return;
+        console.warn("[electron] main window destroyed unexpectedly — recreating hidden in tray");
+        voiceRunning = false;
+        hideOverlay();
+        void stageInjectedIndex().then((p) => {
+            injectedHtmlPath = p ?? injectedHtmlPath;
+            createMainWindow(true);
+        });
+    });
+    const url = isDev()
+        ? DEV_URL
+        : injectedHtmlPath
+            ? `file://${injectedHtmlPath.replace(/\\/g, "/")}`
+            : `file://${spaIndexPath().replace(/\\/g, "/")}`;
+    if (!isDev())
+        console.log(`[electron] loading SPA at ${url}`);
+    void win.loadURL(url);
+    win.webContents.setWindowOpenHandler(({ url: u }) => {
+        void electron_1.shell.openExternal(u);
+        return { action: "deny" };
+    });
+    // If the SPA can't load (corrupt build, asar unpack failure, etc.)
+    // the user would otherwise stare at a blank frameless window.
+    // Surface the failure with a dialog instead. Note: a backend-not-
+    // ready situation is NOT a failure here — the SPA renders the
+    // splash on its own and polls /health, so ``did-fail-load`` for a
+    // missing backend should never fire (file:// always loads).
+    win.webContents.on("did-fail-load", (_e, code, desc, url, isMainFrame) => {
+        if (!isMainFrame)
+            return;
+        console.error(`[electron] SPA failed to load (${code}) ${desc} at ${url}`);
+        if (code === -102 /* ERR_CONNECTION_REFUSED */ || code === -106 /* ERR_CONNECTION_RESET */) {
+            void electron_1.dialog
+                .showMessageBox({
+                type: "error",
+                message: "mhc-desktop SPA failed to load",
+                detail: `The bundled SPA could not be loaded.\n\n` +
+                    `Open the log folder to see why, then relaunch.\n\nLog: ${logPath()}`,
+                buttons: ["Open log folder", "Quit"],
+                defaultId: 0,
+                cancelId: 1,
+            })
+                .then(async (choice) => {
+                if (choice.response === 0)
+                    await openLogFolder();
+                isQuitting = true;
+                electron_1.app.quit();
+            });
+        }
+    });
+    // Clean up the temp injected index.html once the renderer has
+    // booted. We don't await this — the file is only ever read on
+    // cold start, so even a leaked handle is harmless.
+    const injectedPathToClean = injectedHtmlPath;
+    if (injectedPathToClean) {
+        win.webContents.once("did-finish-load", () => {
+            void node_fs_1.promises.unlink(injectedPathToClean).catch(() => undefined);
+        });
+    }
+}
 async function bootstrap() {
     await electron_1.app.whenReady();
     // Drop Electron's default menu bar — File / Edit / View / Window / Help
@@ -517,7 +869,6 @@ async function bootstrap() {
         electron_1.Menu.setApplicationMenu(null);
     }
     const isDevMode = isDev();
-    let injectedHtmlPath = null;
     // The updater bootstraps BEFORE the window paints so a freshly
     // applied Tier 2/3 is what the user sees on launch. We need to know
     // whether ``resourcesPath`` exists (packaged mode); in dev there's
@@ -539,46 +890,15 @@ async function bootstrap() {
             throw err;
         });
         // Stage a temp index.html with the backend URL injected so the
-        // SPA's fetch() calls hit the right port. Done once at boot —
-        // the renderer keeps the URL for its lifetime. ``distDir`` is
-        // also injected as a ``<base href>`` so the relative asset URLs
+        // SPA's fetch() calls hit the right port. ``distDir`` is also
+        // injected as a ``<base href>`` so the relative asset URLs
         // (``./assets/index-XYZ.js``, ``./fonts/...``) resolve back into
-        // the actual ``dist/`` directory instead of ``os.tmpdir()``.
-        try {
-            const original = await node_fs_1.promises.readFile(spaIndexPath(), "utf8");
-            injectedHtmlPath = await injectBackendUrl(original, backendPort, spaDistDir());
-        }
-        catch (e) {
-            console.error("[electron] failed to stage injected SPA index:", e);
-        }
+        // the actual ``dist/`` directory instead of "os.tmpdir()".
+        // Re-staged on window recreation (the file gets unlinked after
+        // each window's first load).
+        injectedHtmlPath = (await stageInjectedIndex()) ?? injectedHtmlPath;
     }
-    mainWindow = new electron_1.BrowserWindow({
-        width: 1180,
-        height: 760,
-        minWidth: 760,
-        minHeight: 480,
-        title: "mhc-desktop",
-        // No native title bar; the renderer draws its own in TitleBar.vue
-        // (full control over theme, hover states, drag region). Window
-        // resize borders are still handled by the OS frame.
-        titleBarStyle: "hidden",
-        backgroundColor: "#ffffff",
-        show: false, // wait until first paint to avoid the white flash
-        webPreferences: {
-            preload: node_path_1.default.join(__dirname, "preload.js"),
-            contextIsolation: true,
-            nodeIntegration: false,
-            sandbox: true,
-        },
-    });
-    // Show window as soon as the DOM is ready so the user gets
-    // visual feedback BEFORE the backend is up. Without this we
-    // would hold the window off-screen until ready and the user
-    // would have nothing to look at — exactly the bug we're fixing.
-    mainWindow.once("ready-to-show", () => {
-        if (mainWindow && !mainWindow.isDestroyed())
-            mainWindow.show();
-    });
+    createMainWindow(false);
     // Window controls — TitleBar.vue drives these via IPC.
     electron_1.ipcMain.handle("window:minimize", () => {
         if (!mainWindow || mainWindow.isDestroyed())
@@ -608,63 +928,7 @@ async function bootstrap() {
         isQuitting = true;
         electron_1.app.quit();
     });
-    mainWindow.on("maximize", () => {
-        mainWindow?.webContents.send("window:maximize-changed", true);
-    });
-    mainWindow.on("unmaximize", () => {
-        mainWindow?.webContents.send("window:maximize-changed", false);
-    });
-    // Close-button handling. We intercept the X click: if the user
-    // remembers "tray" we just hide the window; otherwise we prompt
-    // them once and persist their choice.
-    let closePromptDone = false;
-    mainWindow.on("close", async (event) => {
-        if (isQuitting)
-            return; // we're already on the way out
-        if (!mainWindow || mainWindow.isDestroyed())
-            return;
-        // First close ever: respect the persisted pref from prior runs.
-        const pref = closePrefStore.read();
-        if (pref.remember && !closePromptDone) {
-            closePromptDone = true;
-            if (pref.action === "tray") {
-                event.preventDefault();
-                mainWindow.hide();
-                return;
-            }
-            // pref.action === "exit" → fall through to actual quit
-        }
-        else if (!closePromptDone) {
-            // First close, no remembered pref: ask the user.
-            event.preventDefault();
-            const r = await promptCloseAction();
-            closePromptDone = true;
-            if (!r)
-                return;
-            if (r.remember)
-                closePrefStore.write(r.action, true);
-            if (r.action === "tray") {
-                mainWindow.hide();
-                return;
-            }
-            // User picked exit. We already preventDefault'd above so
-            // the window won't close on its own; re-fire close() with
-            // isQuitting set so the recursive handler short-circuits.
-            isQuitting = true;
-            mainWindow.close();
-            return;
-        }
-        else {
-            // Subsequent closes within this session always honour the
-            // first choice — no need to re-prompt.
-            if (pref.action === "tray") {
-                event.preventDefault();
-                mainWindow.hide();
-                return;
-            }
-        }
-        isQuitting = true;
-    });
+    // Close-button handling + window load live in createMainWindow.
     // Skill import pickers. The renderer can't show a native dialog or
     // read arbitrary filesystem paths under contextIsolation, so we
     // hand the dialog through the main process. Folder pickers return
@@ -715,6 +979,70 @@ async function bootstrap() {
     // Build the tray early so closing the window to tray always works
     // even before the user has seen a single frame of the renderer.
     createTray();
+    // Global voice dictation shortcut — registers regardless of dev /
+    // packaged so it's testable in both.
+    registerVoiceShortcut();
+    // Renderer progress (status / partial / level / error) → overlay.
+    // Errors also reset our toggle state so the next press restarts.
+    electron_1.ipcMain.on("voice:event", (_e, ev) => {
+        if (!ev || typeof ev.type !== "string")
+            return;
+        if (ev.type === "auth") {
+            voiceAuthOk = ev.value === "ready";
+            return;
+        }
+        if (ev.type === "shortcut") {
+            const acc = String(ev.value);
+            if (acc.trim() && acc !== voiceShortcut) {
+                voiceShortcut = acc;
+                registerVoiceShortcut();
+            }
+            // Keep a live overlay's hint in sync with the new preset.
+            overlayWin?.webContents.send("voice:overlay", ev);
+            return;
+        }
+        lastOverlayEvent = ev;
+        overlayWin?.webContents.send("voice:overlay", ev);
+        if (ev.type === "status" && ev.value === "error") {
+            voiceRunning = false;
+            // Keep the error visible a moment before hiding.
+            setTimeout(() => hideOverlay(), 2800);
+        }
+    });
+    electron_1.ipcMain.handle("voice:overlay-sync", () => ({
+        last: lastOverlayEvent,
+        shortcut: voiceShortcut,
+    }));
+    // Renderer finished a run → hide the overlay and commit the text.
+    // When OUR window has focus the transcript goes straight into the
+    // composer (clipboard-paste would land on whatever element has
+    // focus, possibly a button, and vanish); otherwise it's pasted
+    // into the focused foreign app.
+    electron_1.ipcMain.on("voice:done", (_e, payload) => {
+        voiceRunning = false;
+        hideOverlay();
+        const text = typeof payload?.text === "string" ? payload.text : "";
+        if (!text.trim())
+            return;
+        if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused()) {
+            mainWindow.webContents.send("voice:in-app-commit", text);
+        }
+        else {
+            commitVoiceText(text);
+        }
+    });
+    // Composer mic button = same flow as the shortcut (toggle + commit
+    // to the focused app / composer). One code path, no duplication.
+    electron_1.ipcMain.on("voice:toggle", () => {
+        void toggleGlobalVoice();
+    });
+    // Settings picked a different preset → re-register the hook.
+    electron_1.ipcMain.on("voice:shortcut", (_e, acc) => {
+        if (typeof acc !== "string" || !acc.trim())
+            return;
+        voiceShortcut = acc;
+        registerVoiceShortcut();
+    });
     // Updater phase 2: IPC + background loop. The window exists by now,
     // so state transitions can reach the renderer.
     if (updaterEnabled && mainWindow) {
@@ -722,65 +1050,6 @@ async function bootstrap() {
             mainWindow,
             enabled: true,
             isReadyForCommit: () => backendReadyPromise ?? Promise.resolve(),
-        });
-    }
-    if (isDevMode) {
-        if (!mainWindow)
-            return;
-        void mainWindow.loadURL(DEV_URL);
-        mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-            void electron_1.shell.openExternal(url);
-            return { action: "deny" };
-        });
-    }
-    else {
-        // Prefer the injected temp file (carries ``__MHC_BACKEND_URL``);
-        // fall back to the dist/index.html if injection failed.
-        const url = injectedHtmlPath
-            ? `file://${injectedHtmlPath.replace(/\\/g, "/")}`
-            : `file://${spaIndexPath().replace(/\\/g, "/")}`;
-        console.log(`[electron] loading SPA at ${url}`);
-        void mainWindow.loadURL(url);
-        mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-            void electron_1.shell.openExternal(url);
-            return { action: "deny" };
-        });
-    }
-    // If the SPA can't load (corrupt build, asar unpack failure, etc.)
-    // the user would otherwise stare at a blank frameless window.
-    // Surface the failure with a dialog instead. Note: a backend-not-
-    // ready situation is NOT a failure here — the SPA renders the
-    // splash on its own and polls /health, so ``did-fail-load`` for a
-    // missing backend should never fire (file:// always loads).
-    mainWindow.webContents.on("did-fail-load", (_e, code, desc, url, isMainFrame) => {
-        if (!isMainFrame)
-            return;
-        console.error(`[electron] SPA failed to load (${code}) ${desc} at ${url}`);
-        if (code === -102 /* ERR_CONNECTION_REFUSED */ || code === -106 /* ERR_CONNECTION_RESET */) {
-            void electron_1.dialog
-                .showMessageBox({
-                type: "error",
-                message: "mhc-desktop SPA failed to load",
-                detail: `The bundled SPA could not be loaded.\n\n` +
-                    `Open the log folder to see why, then relaunch.\n\nLog: ${logPath()}`,
-                buttons: ["Open log folder", "Quit"],
-                defaultId: 0,
-                cancelId: 1,
-            })
-                .then(async (choice) => {
-                if (choice.response === 0)
-                    await openLogFolder();
-                isQuitting = true;
-                electron_1.app.quit();
-            });
-        }
-    });
-    // Clean up the temp injected index.html once the renderer has
-    // booted. We don't await this — the file is only ever read on
-    // cold start, so even a leaked handle is harmless.
-    if (injectedHtmlPath) {
-        mainWindow.webContents.once("did-finish-load", () => {
-            void node_fs_1.promises.unlink(injectedHtmlPath).catch(() => undefined);
         });
     }
     electron_1.app.on("activate", () => {
@@ -808,6 +1077,8 @@ electron_1.app.on("before-quit", async (event) => {
         return; // already in flight
     shuttingDown = true;
     destroyTray();
+    electron_1.globalShortcut.unregisterAll();
+    hideOverlay();
     // Ask the renderer to cancel running SSE streams and flush the
     // bus persisters. The renderer's ``__mhcStartExit`` callback
     // shows the "正在退出…" splash and runs ``__mhcFlush()`` (which

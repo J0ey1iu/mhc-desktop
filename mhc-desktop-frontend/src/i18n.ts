@@ -225,6 +225,10 @@ const en: Record<string, string> = {
   "settings.languageDesc": "Switch the interface language.",
   "settings.languageEn": "English",
   "settings.languageZh": "中文",
+  "settings.voiceInput": "Voice Input",
+  "settings.voiceShortcut": "Global shortcut",
+  "settings.voiceShortcutDesc":
+    "Fixed presets only — free-form keys would collide with shortcuts we can't see (IME, other apps).",
   "settings.about": "About",
   "settings.aboutDesc":
     "Self-contained Electron client for talking to LLM agents via your own provider keys. Independent of mh-gateway and mh-local.",
@@ -719,6 +723,10 @@ const zh: Record<string, string> = {
   "settings.languageDesc": "切换界面语言。",
   "settings.languageEn": "English",
   "settings.languageZh": "中文",
+  "settings.voiceInput": "语音输入",
+  "settings.voiceShortcut": "全局快捷键",
+  "settings.voiceShortcutDesc":
+    "固定预设，避免与输入法或其他应用占用的快捷键冲突。",
   "settings.about": "关于",
   "settings.aboutDesc":
     "独立的 Electron 客户端，通过您自己的服务商密钥与 LLM Agent 对话。独立于 mh-gateway 和 mh-local。",

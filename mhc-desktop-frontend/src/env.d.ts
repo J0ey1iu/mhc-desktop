@@ -35,6 +35,19 @@ declare global {
         filters?: { name: string; extensions: string[] }[]
       }) => Promise<{ path: string; name: string } | null>
       readFile: (p: string) => Promise<ArrayBuffer | null>
+      voice?: {
+        report: (type: string, value: string | number) => void
+        done: (text: string) => void
+        toggle: () => void
+        setShortcut: (acc: string) => void
+        onRun: (cb: (action: "start" | "stop") => void) => () => void
+        onInAppCommit: (cb: (text: string) => void) => () => void
+        onEvent: (cb: (e: { type: string; value: string | number }) => void) => () => void
+        sync: () => Promise<{
+          last: { type: string; value: string | number } | null
+          shortcut: string
+        }>
+      }
       update?: {
         getStatus: () => Promise<UpdateStatusShape>
         checkNow: () => Promise<UpdateStatusShape>

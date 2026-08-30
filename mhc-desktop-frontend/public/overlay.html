@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>语音输入</title>
+<style>
+  /* Global voice-input overlay — frameless, always-on-top window at
+     bottom-center. The window stays transparent and the CARD is a
+     fully opaque floating element with real margins around it:
+     (1) the rounded corners are genuinely transparent on screen,
+     (2) no outer shadow is needed. All data arrives over IPC via
+     window.mhc.voice.onEvent(). */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    background: transparent;
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+    font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  }
+
+  body {
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding-bottom: 4px;
+  }
+
+  .card {
+    width: 312px;
+    height: 124px;
+    display: flex;
+    flex-direction: column;
+    padding: 11px 14px 10px;
+    border-radius: 14px;
+    /* Theme palette (light/dark) pushed in from the SPA via the
+       "theme" event; these are the dark fallbacks before it lands. */
+    --ov-bg1: #20233a;
+    --ov-bg2: #0d0f19;
+    --ov-text: #eff1f9;
+    --ov-mid: #9099b0;
+    --ov-faint: #646d85;
+    --ov-border: rgba(255, 255, 255, .1);
+    background: linear-gradient(168deg, var(--ov-bg1) 0%, var(--ov-bg2) 100%);
+    border: 1px solid var(--ov-border);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .055);
+    animation: rise .2s cubic-bezier(.2, .9, .25, 1) both;
+  }
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(10px) scale(.985); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  /* ── header: status dot + label + timer ─────────────────────── */
+  .head { display: flex; align-items: center; gap: 7px; }
+
+  .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent-glow);
+    flex: none;
+  }
+  .dot.pulse { animation: pulse .9s ease-in-out infinite; }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1);    filter: brightness(1); }
+    50%      { transform: scale(1.35); filter: brightness(1.55); }
+  }
+
+  .label {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .02em;
+    color: var(--ov-text);
+    white-space: nowrap;
+  }
+
+  .timer {
+    margin-left: auto;
+    font-size: 10.5px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: .06em;
+    color: var(--ov-mid);
+  }
+
+  /* ── loudness meter ─────────────────────────────────────────── */
+  .meter {
+    display: flex; align-items: flex-end; justify-content: center;
+    gap: 2.5px;
+    height: 16px;
+    margin-top: 8px;
+  }
+  .meter i {
+    width: 3px; border-radius: 1.5px;
+    height: 2px;
+    background: linear-gradient(180deg, var(--accent), color-mix(in srgb, var(--accent) 50%, #3d4360));
+    opacity: .95;
+    transform-origin: bottom;
+    transition: height .07s linear;
+  }
+
+  /* ── live transcript ────────────────────────────────────────── */
+  .transcript {
+    flex: 1;
+    margin-top: 8px;
+    min-height: 17px;
+    max-height: 34px;
+    overflow: hidden;
+    font-size: 12px;
+    line-height: 17px;
+    color: var(--ov-text);
+    white-space: pre-wrap;
+    word-break: break-word;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+  .transcript.placeholder { color: var(--ov-faint); }
+
+  /* ── footer hint ────────────────────────────────────────────── */
+  .hint {
+    display: flex; align-items: center; gap: 4px;
+    margin-top: 7px;
+    padding-top: 6px;
+    border-top: 1px solid color-mix(in srgb, var(--ov-border) 80%, transparent);
+    font-size: 10px;
+    letter-spacing: .03em;
+    color: var(--ov-mid);
+  }
+  .hint kbd {
+    padding: 0 5px;
+    border-radius: 4px;
+    border: 1px solid color-mix(in srgb, var(--ov-mid) 32%, transparent);
+    border-bottom-width: 2px;
+    background: color-mix(in srgb, var(--ov-mid) 9%, transparent);
+    color: color-mix(in srgb, var(--ov-text) 74%, transparent);
+    font-family: inherit;
+    font-size: 9px;
+    line-height: 13px;
+  }
+  .hint .sep { opacity: .55; }
+  .hint .offline { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+  .hint .offline svg { opacity: .7; }
+  .hint .hint-keys { display: contents; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="head">
+      <span class="dot" id="dot"></span>
+      <span class="label" id="label">就绪</span>
+      <span class="timer" id="timer"></span>
+    </div>
+    <div class="meter" id="meter"></div>
+    <div class="transcript placeholder" id="transcript">按快捷键开始说话，识别在本地完成</div>
+    <div class="hint">
+      <span class="hint-keys" id="hintKeys"></span>
+      <span>结束并插入</span>
+      <span class="offline">
+        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22V10"/><path d="M5 13a7 7 0 0 1 14 0"/><path d="M4 18a11 11 0 0 1 16 0"/></svg>
+        离线
+      </span>
+    </div>
+  </div>
+
+<script>
+  const STAT = {
+    mic:      { label: "正在打开麦克风…", accent: "#4da3ff", pulse: false },
+    loading:  { label: "正在加载模型…",   accent: "#ffb84d", pulse: true },
+    listening:{ label: "收音中…",      accent: "#ff4d5e", pulse: true },
+    error:    { label: "启动失败",      accent: "#ff4d5e", pulse: false },
+    idle:     { label: "就绪",          accent: "#9aa3b2", pulse: false },
+  }
+  const BAR_COUNT = 24
+  const BAR_WEIGHTS = Array.from({ length: BAR_COUNT }, (_, i) => {
+    const x = (i - (BAR_COUNT - 1) / 2) / ((BAR_COUNT - 1) / 2)
+    return Math.max(0.08, 1 - Math.pow(Math.abs(x), 1.7))
+  })
+
+  const dot = document.getElementById("dot")
+  const label = document.getElementById("label")
+  const timerEl = document.getElementById("timer")
+  const transcriptEl = document.getElementById("transcript")
+  const meterEl = document.getElementById("meter")
+  const card = document.querySelector(".card")
+
+  for (let i = 0; i < BAR_COUNT; i++) {
+    const b = document.createElement("i")
+    b.dataset.w = BAR_WEIGHTS[i]
+    meterEl.appendChild(b)
+  }
+  const bars = [...meterEl.children]
+
+  function setLevel(v) {
+    const n = Math.max(0, Math.min(1, v))
+    for (let i = 0; i < bars.length; i++) {
+      const w = +bars[i].dataset.w
+      bars[i].style.height = (2 + n * 12 * w).toFixed(1) + "px"
+    }
+  }
+  setLevel(0)
+
+  function setStatus(name) {
+    const s = STAT[name] || STAT.idle
+    card.style.setProperty("--accent", s.accent)
+    card.style.setProperty("--accent-glow", s.accent + "aa")
+    dot.classList.toggle("pulse", s.pulse)
+    label.textContent = s.label
+    if (name === "listening") startTimer()
+    else stopTimer()
+  }
+
+  let timerInt = 0
+  let startAt = 0
+  function startTimer() {
+    stopTimer()
+    startAt = Date.now()
+    timerInt = setInterval(() => {
+      const s = Math.floor((Date.now() - startAt) / 1000)
+      const m = Math.floor(s / 60)
+      timerEl.textContent = m + ":" + String(s % 60).padStart(2, "0")
+    }, 500)
+  }
+  function stopTimer() {
+    if (timerInt) clearInterval(timerInt)
+    timerInt = 0
+    timerEl.textContent = ""
+  }
+
+  function setTranscript(text, placeholder) {
+    transcriptEl.classList.toggle("placeholder", !!placeholder)
+    transcriptEl.textContent = text
+  }
+
+  // Render the current global hotkey (``Ctrl+Alt+D`` → three key
+  // caps with + separators) so the hint never shows a stale combo
+  // after the user re-binds it in Settings.
+  const hintKeysEl = document.getElementById("hintKeys")
+  function renderShortcut(acc) {
+    if (!acc || !hintKeysEl) return
+    const parts = String(acc).split("+").filter(Boolean)
+    const frag = document.createDocumentFragment()
+    parts.forEach((k, i) => {
+      if (i > 0) {
+        const sep = document.createElement("span")
+        sep.className = "sep"
+        sep.textContent = "+"
+        frag.appendChild(sep)
+      }
+      const kbd = document.createElement("kbd")
+      kbd.textContent = k
+      frag.appendChild(kbd)
+    })
+    hintKeysEl.replaceChildren(frag)
+  }
+
+  function applyEvent(e) {
+    switch (e.type) {
+      case "status":
+        setStatus(String(e.value))
+        break
+      case "theme":
+        try {
+          const p = JSON.parse(String(e.value))
+          if (p && typeof p === "object") {
+            const set = (k, v) => v && card.style.setProperty(k, v)
+            set("--ov-bg1", p.bg1)
+            set("--ov-bg2", p.bg2)
+            set("--ov-text", p.text)
+            set("--ov-mid", p.mid)
+            set("--ov-faint", p.faint)
+            set("--ov-border", p.border)
+          }
+        } catch { /* ignore malformed theme payload */ }
+        break
+      case "shortcut":
+        renderShortcut(String(e.value))
+        break
+      case "message":
+        setTranscript(String(e.value), false)
+        break
+      case "partial":
+        setTranscript(String(e.value), false)
+        break
+      case "level":
+        setLevel(Number(e.value))
+        break
+    }
+  }
+
+  // ── live events from the main renderer (IPC via preload) ─────
+  // Show the default hint immediately, then replace it with the
+  // real bound shortcut from main once sync lands.
+  renderShortcut("Alt+Shift+W")
+  window.mhc?.voice?.sync().then((s) => {
+    if (!s) return
+    if (s.last) applyEvent(s.last)
+    if (s.shortcut) renderShortcut(s.shortcut)
+  })
+  window.mhc?.voice?.onEvent(applyEvent)
+</script>
+</body>
+</html>
