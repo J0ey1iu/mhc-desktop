@@ -12,14 +12,14 @@ For OpenAI-compatible vendors (DeepSeek, Moonshot, Zhipu, Ollama,
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from anthropic import AsyncAnthropic
 from httpx import AsyncClient
-from openai import AsyncOpenAI
-
 from minimal_harness.llm.anthropic import AnthropicLLMProvider
 from minimal_harness.llm.openai import OpenAILLMProvider
+from openai import AsyncOpenAI
 
 from mhc_desktop_backend.protocol_models import Provider
 
@@ -37,6 +37,7 @@ def build_provider(
     *,
     model_override: str = "",
     model_params: dict[str, Any] | None = None,
+    extra_headers_provider: Callable[[], Awaitable[dict[str, str]]] | None = None,
 ) -> Any:
     """Return a streaming-capable LLM instance for *provider*.
 
@@ -45,6 +46,13 @@ def build_provider(
     ``model_params`` are extra request-body fields merged into every
     call (shipped via OpenAI's ``extra_body`` so non-standard keys like
     ``reasoning_effort`` land in the request body unchanged).
+
+    ``extra_headers_provider`` is an async callable returning HTTP
+    headers merged into every outbound LLM call (the SDK invokes it
+    per request). It is composed with the provider's static
+    ``headers`` field: static headers first, then the callable's
+    result overwrites on conflicts — so a request-scoped identity can
+    override a provider-level default.
     """
     if not provider.api_key and provider.provider_type != "openai":
         # OpenAI driver still requires api_key (any non-empty string works
@@ -60,6 +68,17 @@ def build_provider(
     llm_kwargs: dict[str, Any] = {}
     if model_params:
         llm_kwargs["extra_body"] = dict(model_params)
+
+    static_headers = dict(provider.headers or {})
+    if static_headers or extra_headers_provider is not None:
+
+        async def _headers() -> dict[str, str]:
+            out = dict(static_headers)
+            if extra_headers_provider is not None:
+                out.update(await extra_headers_provider())
+            return out
+
+        llm_kwargs["llm_extra_headers_provider"] = _headers
 
     ptype = provider.provider_type
     if ptype == "openai":

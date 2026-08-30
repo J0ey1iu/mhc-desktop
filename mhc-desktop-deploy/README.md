@@ -559,6 +559,34 @@ app = build_default_app(
 `provider_type` values that don't appear in your whitelist are rejected
 with 400 by the kernel.
 
+### Per-request LLM headers
+
+`llm_extra_headers_provider` lets you attach custom HTTP headers to
+**every outbound LLM call** (chat + auto-title), computed per request
+from the resolved principal — the seam for carrying the SSO user's
+identity (username / tenant / IdP session token) so an upstream
+gateway can enforce quotas or attribute spend:
+
+```python
+import os
+from mhc_desktop_deploy.assemble import build_default_app
+
+async def upstream_headers(request_user) -> dict[str, str]:
+    """request_user is kernel's AuthUser (or None in debug mode)."""
+    creds = (request_user.upstream_credentials or {}) if request_user else {}
+    return {
+        "X-Mhc-User-Id": request_user.username if request_user else "",
+        "X-Mhc-Tenant-Id": os.environ["MHC_TENANT"],
+        **({"Authorization": f"Bearer {creds['auth']}"} if creds.get("auth") else {}),
+    }
+
+app = build_default_app(llm_extra_headers_provider=upstream_headers)
+```
+
+The factory is awaited once per LLM call; static per-provider headers
+(``Provider.headers`` in `providers.json`) are merged underneath and
+your per-request result wins on conflicts.
+
 ---
 
 ## System prompt, onboarding, branding
@@ -774,6 +802,7 @@ Alphabetised, with kernel default and deploy wiring:
 | `mcp_manager` | `MCPManagerProtocol` | required for MCP tool calls | `MCPManager(default_mcp_store(data_dir))` |
 | `mcp_store` | `MCPStoreProtocol` | required for MCP config CRUD | `default_mcp_store(data_dir)` |
 | `meta` | `dict \| None` | `{}` (empty) | `{version, data_dir, debug, bundled: {…}}` |
+| `llm_extra_headers_provider` | `Callable[[AuthUser \| None], Awaitable[dict[str, str]]] \| None` | `None` (no extra headers) | inherited |
 | `metrics` | `MetricsRepositoryProtocol` | required for `/api/v1/metrics/*` | `default_metrics_repo()` |
 | `onboarding_cards` | `list[OnboardingCard] \| None` | `DEFAULT_ONBOARDING_CARDS` (3 cards) | inherited |
 | `prefs` | `PrefsStoreProtocol` | required for `/api/v1/prefs/*` | `default_prefs_store(data_dir)` |

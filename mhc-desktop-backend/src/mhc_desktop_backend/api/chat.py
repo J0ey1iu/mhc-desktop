@@ -35,16 +35,13 @@ import asyncio
 import logging
 import time
 import uuid
+from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
-
-from minimal_harness.llm.llm import StreamStalledError
-from minimal_harness.memory import Message
-
-from mhc_desktop_backend.api._user_context import current_user_id
+from mhc_desktop_backend.api._user_context import current_user_id, llm_extra_headers
 from mhc_desktop_backend.llm import build_provider
 from mhc_desktop_backend.mcp import (
     MCPError,
@@ -63,13 +60,14 @@ from mhc_desktop_backend.protocols import (
     ToolExecutorRegistryProtocol,
     ToolStoreProtocol,
 )
-from mhc_desktop_backend.skills import SkillError
 from mhc_desktop_backend.stream_state import SessionStream
 from mhc_desktop_backend.tools import (
     DEFAULT_TOOL_TIMEOUT_SECONDS,
     build_streaming_tool,
     build_tool_event_stream,
 )
+from minimal_harness.llm.llm import StreamStalledError
+from minimal_harness.memory import Message
 
 logger = logging.getLogger("mhc_desktop_backend")
 
@@ -349,7 +347,6 @@ def _attach_user_metadata(coerced: list[Message], raw: list[dict[str, Any]]) -> 
     during the same pass, so filtering a malformed message can never
     shift the pairing. Kept for callers that still invoke it."""
     del coerced, raw
-    return
 
 
 def _format_files_block(files: list[dict[str, Any]], user_text: str = "") -> str:
@@ -468,6 +465,7 @@ async def _event_stream(
     metrics_repo: MetricsRepositoryProtocol | None = None,
     user_id: str = "",
     chat_policy: ChatPolicy | None = None,
+    extra_headers_provider: Callable[[], Awaitable[dict[str, str]]] | None = None,
     tool_executor_registry: ToolExecutorRegistryProtocol | None = None,
     system_prompt_base: str | None = None,
 ) -> AsyncIterator[str]:
@@ -585,7 +583,12 @@ async def _event_stream(
     # this build simple: provider-level wins for now.
     model_params = dict(getattr(provider, "model_params", None) or {})
     try:
-        llm = build_provider(provider, model_override=model, model_params=model_params)
+        llm = build_provider(
+            provider,
+            model_override=model,
+            model_params=model_params,
+            extra_headers_provider=extra_headers_provider,
+        )
     except ValueError as e:
         yield _emit("error", {"message": str(e)})
         return
@@ -1565,6 +1568,9 @@ async def chat(
 
     mcp_runner = _MCPRunner(mcp_store, mcp_manager) if mcp_tools else None
     mcp_call_log: list[str] = []
+    # LLM outbound header seam: deploy's ``llm_extra_headers_provider``
+    # closed over this request's principal (see _user_context).
+    extra_headers_provider = llm_extra_headers(request)
 
     # Tools wiring — separate from MCP. Each requested tool is
     # resolved through the ToolStoreProtocol and wrapped in a
@@ -1688,6 +1694,7 @@ async def chat(
                 chat_policy=chat_policy,
                 tool_executor_registry=tool_executor_registry,
                 system_prompt_base=system_prompt_base,
+                extra_headers_provider=extra_headers_provider,
             ):
                 yield chunk
         finally:

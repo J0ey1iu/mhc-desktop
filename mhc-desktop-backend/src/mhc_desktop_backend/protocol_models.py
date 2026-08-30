@@ -72,9 +72,14 @@ class Provider:
     created_at: str = ""
     updated_at: str = ""
     model_params: dict[str, Any] = field(default_factory=dict)
+    # Static per-provider HTTP headers merged into every outbound LLM
+    # request (e.g. a cost-center tag). Dynamic per-user headers come
+    # from ``create_app(llm_extra_headers_provider=...)`` and win on
+    # conflicts. Opaque to the kernel — forwarded verbatim.
+    headers: dict[str, str] | None = None
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Provider":
+    def from_dict(cls, data: dict[str, Any]) -> Provider:
         d = dict(data)
         d.setdefault("provider_type", "openai")
         return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})

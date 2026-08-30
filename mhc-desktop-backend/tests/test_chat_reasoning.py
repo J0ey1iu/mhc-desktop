@@ -14,7 +14,6 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-
 from mhc_desktop_backend.api.chat import router as chat_router
 from mhc_desktop_deploy.impls.file_stores.stream_registry import StreamRegistry
 
@@ -70,7 +69,7 @@ def _build_app(tmp_path, deltas: list[_ReasonChunk]) -> FastAPI:
 
     from mhc_desktop_backend.api import chat as chat_mod
 
-    def fake_build_provider(provider, model_override=None, model_params=None):
+    def fake_build_provider(provider, model_override=None, model_params=None, **kwargs):
         return _StubProvider(deltas)
 
     chat_mod.build_provider = fake_build_provider

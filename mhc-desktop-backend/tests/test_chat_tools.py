@@ -21,13 +21,12 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-
 from mhc_desktop_backend.api.chat import router as chat_router
 from mhc_desktop_backend.api.tools import router as tools_router
 from mhc_desktop_backend.protocols import ChatPolicy
+from mhc_desktop_backend.tools.imports import import_local_tool
 from mhc_desktop_deploy.impls.file_stores.stream_registry import StreamRegistry
 from mhc_desktop_deploy.impls.file_stores.tools_store import ToolStore
-from mhc_desktop_backend.tools.imports import import_local_tool
 
 
 class _StubProvider:
@@ -149,11 +148,11 @@ def _build_app(
 
     if provider is not None:
 
-        def fake_build_provider(provider_, model_override=None, model_params=None):
+        def fake_build_provider(provider_, model_override=None, model_params=None, **kwargs):
             return provider
     else:
 
-        def fake_build_provider(provider_, model_override=None, model_params=None):
+        def fake_build_provider(provider_, model_override=None, model_params=None, **kwargs):
             return _StubProvider(tool_name, args or {})
 
     original = chat_mod.build_provider
@@ -367,7 +366,7 @@ async def test_chat_disabled_tool_skipped(tmp_path: Path):
         from mhc_desktop_backend.api import chat as chat_mod
 
         chat_mod.build_provider = (
-            lambda provider, model_override=None, model_params=None: _StubProvider(
+            lambda provider, model_override=None, model_params=None, **kw: _StubProvider(
                 "greeter", {}
             )
         )
@@ -693,7 +692,7 @@ def test_tool_args_streaming_emits_args_start_then_start():
       capsule transitions seamlessly into the executing one)
     - ``tool_end`` fires once with success
     """
-    from dataclasses import dataclass, field
+    from dataclasses import dataclass
 
     # Stub provider that yields a stream of tool_call deltas.
     # Mirrors ``minimal_harness.types.ToolCallDelta`` (the flat
@@ -778,7 +777,9 @@ def test_tool_args_streaming_emits_args_start_then_start():
     app = _build_app(tmp, provider=_StreamingProvider())
     try:
         import asyncio as _aio
-        from httpx import ASGITransport, AsyncClient as _AC
+
+        from httpx import ASGITransport
+        from httpx import AsyncClient as _AC
 
         async def run():
             store = app.state.tool_store
