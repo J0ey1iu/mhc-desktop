@@ -6,6 +6,7 @@ import { useOnboardingStore } from "../stores/onboarding"
 import { useAppMetaStore } from "../stores/appMeta"
 import { usePrefsStore } from "../stores/prefs"
 import { useUpdateStore } from "../stores/update"
+import { getVoiceShortcut, setVoiceShortcut } from "../lib/globalVoice"
 import { locale, setLocale, t, type Locale } from "../i18n"
 
 const theme = useThemeStore()
@@ -17,6 +18,24 @@ const updateStore = useUpdateStore()
 const isDark = computed(() => theme.theme === "dark")
 const isZh = computed(() => locale.value === "zh")
 const updaterAvailable = computed(() => Boolean(window.mhc?.update))
+
+// Global voice input shortcut: fixed presets only. Users can't
+// record free-form keys — we can't enumerate the hotkeys their IME
+// or other software has claimed, so arbitrary bindings would just
+// collide silently.
+const SHORTCUT_PRESETS = [
+  "Alt+Shift+W",
+  "Ctrl+Alt+W",
+  "Ctrl+Alt+D",
+  "Ctrl+Alt+V",
+  "Alt+Shift+D",
+]
+const voiceShortcut = ref(getVoiceShortcut())
+function pickVoiceShortcut(acc: string) {
+  if (voiceShortcut.value === acc) return
+  voiceShortcut.value = acc
+  setVoiceShortcut(acc)
+}
 
 const stateLabel = computed(() => {
   const k = `settings.update${updateStore.status.state.charAt(0).toUpperCase()}${updateStore.status.state.slice(1)}`
@@ -187,6 +206,29 @@ async function replayTour() {
               "
             />
             <span class="font-size-value">{{ appearance.fontSize }}px</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="group">
+        <h3>{{ t("settings.voiceInput") }}</h3>
+        <div class="row row-stack">
+          <div class="row-text">
+            <div class="row-title">{{ t("settings.voiceShortcut") }}</div>
+            <div class="row-desc">{{ t("settings.voiceShortcutDesc") }}</div>
+          </div>
+          <div class="seg seg-wrap" role="radiogroup" :aria-label="t('settings.voiceShortcut')">
+            <button
+              v-for="acc in SHORTCUT_PRESETS"
+              :key="acc"
+              type="button"
+              role="radio"
+              :aria-checked="voiceShortcut === acc"
+              :class="['seg-opt', { active: voiceShortcut === acc }]"
+              @click="pickVoiceShortcut(acc)"
+            >
+              {{ acc }}
+            </button>
           </div>
         </div>
       </section>
@@ -370,6 +412,10 @@ async function replayTour() {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 2px;
+}
+.seg-wrap {
+  flex-wrap: wrap;
+  gap: 4px;
 }
 .seg-opt {
   border: 0;

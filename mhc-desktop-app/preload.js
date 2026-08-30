@@ -56,6 +56,47 @@ electron_1.contextBridge.exposeInMainWorld("mhc", {
             return "";
         }
     },
+    // Global voice input (Alt+Shift+W): the main window renderer runs
+    // the sherpa-onnx recognizer; the overlay window shows status.
+    // Main brokers events between the two via ``voice:event``,
+    // ``voice:done``, ``voice:run`` and ``voice:overlay`` channels.
+    voice: {
+        /** Renderer → main: report progress (status/partial/level/message). */
+        report: (type, value) => electron_1.ipcRenderer.send("voice:event", { type, value }),
+        /** Renderer → main: recording finished; main commits the text. */
+        done: (text) => electron_1.ipcRenderer.send("voice:done", { text }),
+        /** Renderer → main: user clicked the composer mic — behave
+         *  exactly like the global shortcut (toggle + committed to
+         *  wherever focus is). */
+        toggle: () => electron_1.ipcRenderer.send("voice:toggle"),
+        /** Renderer → main: the user picked a shortcut preset in
+         *  settings; main re-registers the global hook. */
+        setShortcut: (acc) => electron_1.ipcRenderer.send("voice:shortcut", acc),
+        /** Main window renderer: main asks us to start/stop a global run. */
+        onRun: (cb) => {
+            const handler = (_e, action) => cb(action);
+            electron_1.ipcRenderer.on("voice:run", handler);
+            return () => electron_1.ipcRenderer.removeListener("voice:run", handler);
+        },
+        /** Main window renderer: main commits the finished transcript
+         *  straight into the composer (when the app itself is focused). */
+        onInAppCommit: (cb) => {
+            const handler = (_e, text) => cb(text);
+            electron_1.ipcRenderer.on("voice:in-app-commit", handler);
+            return () => electron_1.ipcRenderer.removeListener("voice:in-app-commit", handler);
+        },
+        /** Overlay window: main forwards renderer progress events. */
+        onEvent: (cb) => {
+            const handler = (_e, e) => cb(e);
+            electron_1.ipcRenderer.on("voice:overlay", handler);
+            return () => electron_1.ipcRenderer.removeListener("voice:overlay", handler);
+        },
+        /** Overlay window: pull the latest state on boot so early
+         *  status updates sent before the overlay finished loading are
+         *  not lost (first model load is slow). ``shortcut`` carries the
+         *  currently registered global hotkey for the hint row. */
+        sync: () => electron_1.ipcRenderer.invoke("voice:overlay-sync"),
+    },
     // Updater — surface backend orchestrator state to the renderer.
     // Main owns the state; the renderer reads it on demand and listens
     // for the ``update:state`` push channel.

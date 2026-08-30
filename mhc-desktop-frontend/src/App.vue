@@ -9,11 +9,13 @@ import Onboarding from "./components/Onboarding.vue"
 import SessionList from "./components/SessionList.vue"
 import TitleBar from "./components/TitleBar.vue"
 import { useAuthStore } from "./stores/auth"
+import { useThemeStore } from "./stores/theme"
 import { useOnboardingStore } from "./stores/onboarding"
 import { useSessionsStore } from "./stores/sessions"
 import { useSessionStreamsStore } from "./stores/sessionStreams"
 import { api } from "./api/client"
 import { startSyncPolling, stopSyncPolling } from "./lib/marketSync"
+import { reportAuth, reportTheme } from "./lib/globalVoice"
 import { t } from "./i18n"
 
 // ── Usage reporter ──
@@ -44,6 +46,24 @@ const route = useRoute()
 const sessionsStore = useSessionsStore()
 const streamsStore = useSessionStreamsStore()
 const auth = useAuthStore()
+const themeStore = useThemeStore()
+
+// Global voice input is gated on a logged-in session: the Electron
+// host ignores Alt+Shift+W until the user has authenticated, so the
+// feature can't fire on the login screen.
+watch(
+  () => auth.isAuthenticated,
+  (v) => reportAuth(v),
+  { immediate: true },
+)
+
+// The voice overlay follows the app theme (light/dark), not a
+// hardcoded black. Re-sent on every toggle.
+watch(
+  () => themeStore.theme,
+  () => reportTheme(),
+  { immediate: true },
+)
 
 // Hide the side panels + titlebar chrome on the login route so the
 // LoginView owns the entire viewport. The router guard already

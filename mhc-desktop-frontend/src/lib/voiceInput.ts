@@ -45,6 +45,21 @@ let onResultCb: ((text: string) => void) | null = null
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let moduleRef: any = null
 
+/** Set by ``cancelPendingVoice`` while ``startVoice`` is still
+ *  awaiting mic permission / model load; checked after each await
+ *  so a stop that lands mid-load cleanly aborts instead of leaving
+ *  a dead recognizer in "listening". */
+let canceledFlag = false
+
+/** Abort a ``startVoice`` that hasn't reached "listening" yet
+ *  (e.g. the user pressed the global shortcut twice quickly, or
+ *  closed the app while the 199 MB model was still loading). */
+export function cancelPendingVoice(): void {
+  canceledFlag = true
+  cleanupMic()
+  setState("idle")
+}
+
 export function getVoiceState(): VoiceState {
   return state
 }
@@ -185,8 +200,20 @@ export async function startVoice(onResult: (text: string) => void): Promise<void
   setState("mic")
   try {
     micStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    if (canceledFlag) {
+      canceledFlag = false
+      cleanupMic()
+      setState("idle")
+      return
+    }
     setState("loading")
     await ensureRuntime()
+    if (canceledFlag) {
+      canceledFlag = false
+      cleanupMic()
+      setState("idle")
+      return
+    }
 
     if (!audioCtx) {
       audioCtx = new AudioContext({ sampleRate: SAMPLE_RATE })

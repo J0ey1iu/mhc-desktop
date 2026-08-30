@@ -7,6 +7,7 @@ import { useAppearanceStore } from "./stores/appearance"
 import { useAppMetaStore } from "./stores/appMeta"
 import { useSessionStreamsStore } from "./stores/sessionStreams"
 import { locale, setLocale } from "./i18n"
+import "./lib/globalVoice"
 import "./styles/fonts.css"
 import "./styles/tokens.css"
 
