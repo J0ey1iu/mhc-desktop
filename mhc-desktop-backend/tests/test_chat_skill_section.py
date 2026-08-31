@@ -21,17 +21,17 @@ What's covered:
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-
 from mhc_desktop_backend.api.chat import (
     _build_skill_section,
     _build_system_prompt,
+)
+from mhc_desktop_backend.api.chat import (
     router as chat_router,
 )
 from mhc_desktop_backend.skills.models import Skill
@@ -39,7 +39,6 @@ from mhc_desktop_backend.tools.builtin import (
     BUILTIN_LOAD_SKILL,
     ensure_builtin_tools,
 )
-
 
 # ── _build_skill_section (unit) ─────────────────────────────────────────────
 
@@ -499,7 +498,7 @@ def _build_chat_app(*, skill_store, provider, tool_store=None) -> FastAPI:
     # Patch chat.build_provider so the route handler picks up our stub.
     from mhc_desktop_backend.api import chat as chat_mod
 
-    def _fake_build(p, model_override=None, model_params=None):
+    def _fake_build(p, model_override=None, model_params=None, **kwargs):
         return provider
 
     chat_mod.build_provider = _fake_build
@@ -572,7 +571,6 @@ async def test_chat_request_skill_section_from_live_store(tmp_path: Path):
                 async def _gen():
                     if False:
                         yield None
-                    return
 
                 return _gen()
 
@@ -645,7 +643,6 @@ async def test_chat_request_logs_tool_and_skill_counts(tmp_path: Path, caplog):
                 async def _g():
                     if False:
                         yield None
-                    return
 
                 return _g()
 

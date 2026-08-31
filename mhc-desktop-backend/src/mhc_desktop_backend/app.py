@@ -26,11 +26,11 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from mhc_desktop_backend import __version__
+from mhc_desktop_backend.api._user_context import ExtraHeadersFactory
 from mhc_desktop_backend.api.auth import router as auth_router
 from mhc_desktop_backend.api.chat import router as chat_router
 from mhc_desktop_backend.api.market import router as market_router
 from mhc_desktop_backend.api.mcp import router as mcp_router
-from mhc_desktop_backend.api.usage import router as usage_router
 from mhc_desktop_backend.api.meta import router as meta_router
 from mhc_desktop_backend.api.metrics import router as metrics_router
 from mhc_desktop_backend.api.onboarding import router as onboarding_router
@@ -39,6 +39,7 @@ from mhc_desktop_backend.api.providers import router as providers_router
 from mhc_desktop_backend.api.sessions import router as sessions_router
 from mhc_desktop_backend.api.skills import router as skills_router
 from mhc_desktop_backend.api.tools import router as tools_router
+from mhc_desktop_backend.api.usage import router as usage_router
 from mhc_desktop_backend.auth.middleware import DEFAULT_EXEMPT_PATHS
 from mhc_desktop_backend.config import Config, load_config
 from mhc_desktop_backend.llm import PRESETS as _DEFAULT_PRESETS
@@ -87,6 +88,7 @@ def create_app(
     onboarding_cards: list[OnboardingCard] | None = None,
     chat_policy: ChatPolicy | None = None,
     tool_executor_registry: ToolExecutorRegistryProtocol | None = None,
+    llm_extra_headers_provider: ExtraHeadersFactory | None = None,
     content_packs_root: Path | None = None,
     meta: dict[str, Any] | None = None,
     cors_origins: list[str] | None = None,
@@ -240,6 +242,10 @@ def create_app(
     app.state.chat_policy = policy
     app.state.onboarding_cards = cards
     app.state.tool_executor_registry = tool_executor_registry
+    # Per-request LLM header factory (deploy-injected). Called with the
+    # resolved ``AuthUser`` (or ``None``) on every chat / auto-title
+    # call; the result is merged into the outbound provider request.
+    app.state.llm_extra_headers_provider = llm_extra_headers_provider
     app.state.content_packs_root = content_packs_root
     app.state.meta = seed_meta
     # Skill market wiring (None = market disabled, /api/v1/market/* 503s).

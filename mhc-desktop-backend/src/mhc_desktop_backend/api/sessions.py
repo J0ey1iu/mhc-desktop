@@ -7,12 +7,13 @@ import re
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-
+from mhc_desktop_backend.api._user_context import llm_extra_headers
 from mhc_desktop_backend.llm import build_provider
 from mhc_desktop_backend.protocols import (
     ProviderStoreProtocol,
     SessionStoreProtocol,
 )
+from minimal_harness.types import ExtraHeadersProvider
 
 logger = logging.getLogger("mhc_desktop_backend")
 
@@ -118,6 +119,7 @@ async def auto_title(
         provider_name=(body.get("provider") or "").strip(),
         model=(body.get("model") or "").strip(),
         provider_store=provider_store,
+        extra_headers_provider=llm_extra_headers(request),
     )
 
     title = generated or _fallback_title(user_message)
@@ -134,6 +136,7 @@ async def _generate_title(
     provider_name: str,
     model: str,
     provider_store: ProviderStoreProtocol,
+    extra_headers_provider: ExtraHeadersProvider | None = None,
 ) -> str | None:
     """Run a tiny non-streaming LLM call to summarize *user_message*
     into a Chinese title ≤10 chars. Returns ``None`` on any failure
@@ -153,6 +156,7 @@ async def _generate_title(
             provider,
             model_override=model,
             model_params=dict(getattr(provider, "model_params", None) or {}),
+            extra_headers_provider=extra_headers_provider,
         )
     except Exception:  # pragma: no cover — defensive
         logger.exception("auto_title.provider.build failed")

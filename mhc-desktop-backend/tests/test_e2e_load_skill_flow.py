@@ -21,21 +21,18 @@ seam between them.
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from typing import Any
 
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-
 from mhc_desktop_backend.api.chat import router as chat_router
-from mhc_desktop_backend.skills.models import Skill
-from mhc_desktop_backend.tools.builtin import BUILTIN_LOAD_SKILL, ensure_builtin_tools
+from mhc_desktop_backend.tools.builtin import BUILTIN_LOAD_SKILL
+from mhc_desktop_backend.tools.imports import import_local_tool
 from mhc_desktop_deploy.impls.file_stores.skills_store import SkillStore
 from mhc_desktop_deploy.impls.file_stores.stream_registry import StreamRegistry
 from mhc_desktop_deploy.impls.file_stores.tools_store import ToolStore
-from mhc_desktop_backend.tools.imports import import_local_tool
 
 
 class _StubProvider:
@@ -199,7 +196,7 @@ async def _build_app(tmp_path: Path, provider: _StubProvider) -> tuple[FastAPI, 
 
     original = chat_mod.build_provider
 
-    def _fake_build(p, model_override=None, model_params=None):
+    def _fake_build(p, model_override=None, model_params=None, **kwargs):
         return provider
 
     chat_mod.build_provider = _fake_build
