@@ -35,7 +35,7 @@ import asyncio
 import logging
 import time
 import uuid
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
@@ -68,6 +68,7 @@ from mhc_desktop_backend.tools import (
 )
 from minimal_harness.llm.llm import StreamStalledError
 from minimal_harness.memory import Message
+from minimal_harness.types import ExtraHeadersProvider
 
 logger = logging.getLogger("mhc_desktop_backend")
 
@@ -465,7 +466,7 @@ async def _event_stream(
     metrics_repo: MetricsRepositoryProtocol | None = None,
     user_id: str = "",
     chat_policy: ChatPolicy | None = None,
-    extra_headers_provider: Callable[[], Awaitable[dict[str, str]]] | None = None,
+    extra_headers_provider: ExtraHeadersProvider | None = None,
     tool_executor_registry: ToolExecutorRegistryProtocol | None = None,
     system_prompt_base: str | None = None,
 ) -> AsyncIterator[str]:

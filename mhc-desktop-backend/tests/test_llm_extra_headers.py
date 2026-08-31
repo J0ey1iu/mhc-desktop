@@ -19,7 +19,6 @@ class _Recorder:
 
     def __init__(self, **kw):
         _Recorder.seen = kw
-        self._chat = lambda: None
 
 
 @pytest.mark.asyncio
@@ -45,7 +44,7 @@ async def test_factory_composes_static_and_dynamic_headers(monkeypatch):
 async def test_factory_without_headers_ships_no_provider(monkeypatch):
     monkeypatch.setattr(factory_mod, "OpenAILLMProvider", _Recorder)
     build_provider(Provider(name="p", api_key="k", default_model="m"))
-    assert not ( _Recorder.seen.get("llm_kwargs") or {} )
+    assert not _Recorder.seen.get("llm_kwargs")
 
 
 @pytest.mark.asyncio

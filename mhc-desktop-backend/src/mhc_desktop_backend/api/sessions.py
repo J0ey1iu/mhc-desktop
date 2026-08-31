@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Awaitable, Callable
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -14,6 +13,7 @@ from mhc_desktop_backend.protocols import (
     ProviderStoreProtocol,
     SessionStoreProtocol,
 )
+from minimal_harness.types import ExtraHeadersProvider
 
 logger = logging.getLogger("mhc_desktop_backend")
 
@@ -136,7 +136,7 @@ async def _generate_title(
     provider_name: str,
     model: str,
     provider_store: ProviderStoreProtocol,
-    extra_headers_provider: Callable[[], Awaitable[dict[str, str]]] | None = None,
+    extra_headers_provider: ExtraHeadersProvider | None = None,
 ) -> str | None:
     """Run a tiny non-streaming LLM call to summarize *user_message*
     into a Chinese title ≤10 chars. Returns ``None`` on any failure

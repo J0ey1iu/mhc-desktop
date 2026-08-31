@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import os
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -26,6 +26,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from mhc_desktop_backend import __version__
+from mhc_desktop_backend.api._user_context import ExtraHeadersFactory
 from mhc_desktop_backend.api.auth import router as auth_router
 from mhc_desktop_backend.api.chat import router as chat_router
 from mhc_desktop_backend.api.market import router as market_router
@@ -87,8 +88,7 @@ def create_app(
     onboarding_cards: list[OnboardingCard] | None = None,
     chat_policy: ChatPolicy | None = None,
     tool_executor_registry: ToolExecutorRegistryProtocol | None = None,
-    llm_extra_headers_provider: Callable[[Any | None], Awaitable[dict[str, str]]]
-    | None = None,
+    llm_extra_headers_provider: ExtraHeadersFactory | None = None,
     content_packs_root: Path | None = None,
     meta: dict[str, Any] | None = None,
     cors_origins: list[str] | None = None,

@@ -12,13 +12,13 @@ For OpenAI-compatible vendors (DeepSeek, Moonshot, Zhipu, Ollama,
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable
 from typing import Any
 
 from anthropic import AsyncAnthropic
 from httpx import AsyncClient
 from minimal_harness.llm.anthropic import AnthropicLLMProvider
 from minimal_harness.llm.openai import OpenAILLMProvider
+from minimal_harness.types import ExtraHeadersProvider
 from openai import AsyncOpenAI
 
 from mhc_desktop_backend.protocol_models import Provider
@@ -37,7 +37,7 @@ def build_provider(
     *,
     model_override: str = "",
     model_params: dict[str, Any] | None = None,
-    extra_headers_provider: Callable[[], Awaitable[dict[str, str]]] | None = None,
+    extra_headers_provider: ExtraHeadersProvider | None = None,
 ) -> Any:
     """Return a streaming-capable LLM instance for *provider*.
 
