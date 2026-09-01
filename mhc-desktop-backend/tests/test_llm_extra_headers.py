@@ -36,7 +36,9 @@ async def test_factory_composes_static_and_dynamic_headers(monkeypatch):
 
     build_provider(provider, extra_headers_provider=dynamic)
 
-    hp = _Recorder.seen["llm_kwargs"]["llm_extra_headers_provider"]
+    hp = _Recorder.seen["llm_extra_headers_provider"]
+    llm_kwargs = _Recorder.seen.get("llm_kwargs") or {}
+    assert "llm_extra_headers_provider" not in llm_kwargs
     assert await hp() == {"X-Static": "overridden", "X-User": "alice"}
 
 
@@ -44,7 +46,31 @@ async def test_factory_composes_static_and_dynamic_headers(monkeypatch):
 async def test_factory_without_headers_ships_no_provider(monkeypatch):
     monkeypatch.setattr(factory_mod, "OpenAILLMProvider", _Recorder)
     build_provider(Provider(name="p", api_key="k", default_model="m"))
-    assert not _Recorder.seen.get("llm_kwargs")
+    seen = _Recorder.seen
+    assert not seen.get("llm_kwargs")
+    assert seen.get("llm_extra_headers_provider") is None
+
+
+@pytest.mark.asyncio
+async def test_anthropic_path_ships_headers_provider(monkeypatch):
+    monkeypatch.setattr(factory_mod, "AnthropicLLMProvider", _Recorder)
+
+    class _FakeClient:
+        def __init__(self, **kw):
+            pass
+
+    monkeypatch.setattr(factory_mod, "AsyncAnthropic", _FakeClient)
+    build_provider(
+        Provider(
+            name="p",
+            api_key="k",
+            default_model="m",
+            provider_type="anthropic",
+            headers={"X-Static": "1"},
+        )
+    )
+    hp = _Recorder.seen["llm_extra_headers_provider"]
+    assert await hp() == {"X-Static": "1"}
 
 
 @pytest.mark.asyncio

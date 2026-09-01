@@ -70,6 +70,7 @@ def build_provider(
         llm_kwargs["extra_body"] = dict(model_params)
 
     static_headers = dict(provider.headers or {})
+    headers_provider: ExtraHeadersProvider | None = None
     if static_headers or extra_headers_provider is not None:
 
         async def _headers() -> dict[str, str]:
@@ -78,7 +79,7 @@ def build_provider(
                 out.update(await extra_headers_provider())
             return out
 
-        llm_kwargs["llm_extra_headers_provider"] = _headers
+        headers_provider = _headers
 
     ptype = provider.provider_type
     if ptype == "openai":
@@ -97,7 +98,10 @@ def build_provider(
             model_params or {},
         )
         return OpenAILLMProvider(
-            client=client, model=model, llm_kwargs=llm_kwargs or None
+            client=client,
+            model=model,
+            llm_extra_headers_provider=headers_provider,
+            llm_kwargs=llm_kwargs or None,
         )
 
     if ptype == "anthropic":
@@ -111,6 +115,10 @@ def build_provider(
             model,
             provider.base_url or "(default)",
         )
-        return AnthropicLLMProvider(client=client, model=model)
+        return AnthropicLLMProvider(
+            client=client,
+            model=model,
+            llm_extra_headers_provider=headers_provider,
+        )
 
     raise ValueError(f"unsupported provider_type: {ptype}")
